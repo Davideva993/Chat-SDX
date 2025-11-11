@@ -1,0 +1,210 @@
+import { v4 as uuidv4 } from 'uuid';
+import { Room } from '../models/db.js';
+const keyExchangeCtrl = {
+  /*-----NAME-------------------------------------------INPUT------------------------------------OUTPUT--------
+  STEP 1: hostRegistersRoom()                         roomName                                 hostToken
+  STEP 2: joinerFindsRoom()                           roomName                                 joinerToken 
+  STEP 3: hostAsksForJoiner()                         roomName, hostToken                      ------
+  STEP 4: hostSendsEncryptedInitKeyAndNonce()         roomName, hostToken en. initKey, nonce   ------
+  STEP 5: joinerAsksForEncryptedInitKeyAndNonce()             roomName, joinerToken                    en. initKey
+  STEP 6: joinerSendsEncryptedDefKey()                roomName, joinerToken, en. defKey        ------
+  STEP 7: hostAsksForEncryptedDefKey()                roomName, hostToken                      en. defKey
+  STEP 8: hostSendsEncryptedSecret()                  roomName, hostToken, en. secret          -------
+  STEP 9: joinerAsksForEncryptedSecret()              roomName, joinerToken                    en. secret
+  -------------------------------------------CHAT STARTS----------------------------------------------------
+  */
+  // Step 1 (Host): Register room with room name. Gets the hostToken 
+  hostRegistersRoom: async (req, res) => {
+    const roomName = req.body.roomName;
+    if (!roomName) {
+      return res.status(400).json({ error: 'Missing roomName' });
+    }
+    try {
+      const existingRoom = await Room.findOne({ where: { roomName } });
+      if (existingRoom) {
+        return res.status(400).json({ error: 'Room already exists' });
+      }
+      const hostToken = uuidv4();
+      await Room.create({
+        roomName,
+        hostToken,
+      });
+      return res.status(200).json({ hostToken });
+    } catch (error) {
+      return res.status(500).json({ error: 'Server error' });
+    }
+  },
+
+
+
+  // Step 2 (Joiner): Find the room (roomName) and get the joinerToken
+  joinerFindsRoom: async (req, res) => {
+    const { roomName } = req.body;
+    if (!roomName) {
+      return res.status(400).json({ error: 'Missing roomName' });
+    }
+    try {
+      const room = await Room.findOne({ where: { roomName } });
+      if (!room) {
+        return res.status(404).json({ error: 'Room not found' });
+      }
+      const joinerToken = uuidv4();
+      await room.update({ joinerToken });
+      res.status(200).json({
+        joinerToken,
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  },
+
+
+
+  // Step 3 (Host): Check if joiner has joined
+  hostAsksForJoiner: async (req, res) => {
+    const { roomName, hostToken } = req.body;
+    if (!roomName || !hostToken) {
+      return res.status(400).json({ error: 'Missing roomName or hostToken' });
+    }
+    try {
+      const room = await Room.findOne({ where: { roomName } });
+      if (!room || room.hostToken !== hostToken) {
+        return res.status(403).json({ error: 'Invalid room or host token' });
+      }
+      if (!room.joinerToken) {
+        return res.status(404).json({ message: 'Joiner is not here, try again' });
+      }
+      res.status(200).json({ message: "Joiner is here" });
+    } catch (error) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  },
+
+
+
+  // Step 4 (Host): Send initKey encrypted by tempKey 
+  hostSendsEncryptedInitKeyAndNonce: async (req, res) => {
+    const { roomName, hostToken, encryptedInitKey, nonce } = req.body;
+    if (!roomName || !hostToken || !encryptedInitKey || !nonce) {
+      return res.status(400).json({ error: 'Missing roomName, hostToken, nonce or encryptedInitKey' });
+    }
+    try {
+      const room = await Room.findOne({ where: { roomName, hostToken } });
+      if (!room) {
+        return res.status(403).json({ error: 'Invalid room or host token' });
+      }
+      await room.update({ encryptedInitKey, nonce });
+      res.status(200).json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  },
+
+
+
+  // Step 5 (Joiner): Ask for initKey encrypted by tempKey 
+  joinerAsksForEncryptedInitKeyAndNonce: async (req, res) => {
+    const { roomName, joinerToken } = req.body;
+    if (!roomName || !joinerToken) {
+      return res.status(400).json({ error: 'Missing roomName or joinerToken' });
+    }
+    try {
+      const room = await Room.findOne({ where: { roomName, joinerToken } });
+      if (!room || !room.joinerToken) {
+        return res.status(403).json({ error: 'Invalid room or joiner token' });
+      }
+      if (!room.encryptedInitKey) {
+        return res.status(404).json({ message: 'encryptedInitKey not found' });
+      }
+      res.status(200).json({ encryptedInitKey: room.encryptedInitKey, nonce: room.nonce });
+    } catch (error) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  },
+
+
+
+  // Step 6 (Joiner): Send defKey encrypted by initKey
+  joinerSendsEncryptedDefKey: async (req, res) => {
+    const { roomName, joinerToken, encryptedDefKey } = req.body;
+    if (!roomName || !joinerToken || !encryptedDefKey) {
+      return res.status(400).json({ error: 'Missing roomName, joinerToken, or encryptedDefKey' });
+    }
+    try {
+      const room = await Room.findOne({ where: { roomName, joinerToken } });
+      if (!room) {
+        return res.status(403).json({ error: 'Invalid room or joiner token' });
+      }
+      await room.update({ encryptedDefKey });
+      res.status(200).json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  },
+
+
+
+  // Step 7 (Host): Ask for the defKey encrypted by initKey
+  hostAsksForEncryptedDefKey: async (req, res) => {
+    const { roomName, hostToken } = req.body;
+    if (!roomName || !hostToken) {
+      return res.status(400).json({ error: 'Missing roomName or hostToken' });
+    }
+    try {
+      const room = await Room.findOne({ where: { roomName, hostToken } });
+      if (!room) {
+        return res.status(403).json({ error: 'Invalid room or host token' });
+      }
+      if (!room.encryptedDefKey) {
+        return res.status(404).json({ message: 'encryptedDefKey not found' });
+      }
+      res.status(200).json({ encryptedDefKey: room.encryptedDefKey || null });
+    } catch (error) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  },
+
+
+
+  //Step 8 (host): Send a secret (secretCode2) encrypted by defKey
+  hostSendsEncryptedSecret: async (req, res) => {
+    const { roomName, hostToken, encryptedSecret } = req.body;
+    if (!roomName || !hostToken || !encryptedSecret) {
+      return res.status(400).json({ error: 'Missing roomName, hostToken, or encryptedSecret' });
+    }
+    try {
+      const room = await Room.findOne({ where: { roomName, hostToken } });
+      if (!room) {
+        return res.status(403).json({ error: 'Invalid room or host token' });
+      }
+      await room.update({ encryptedSecret });
+      res.status(200).json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  },
+
+
+
+  //Step 9 (joiner): Ask for the secret (secretCode2) encrypted by defKey
+  joinerAsksForEncryptedSecret: async (req, res) => {
+    const { roomName, joinerToken } = req.body;
+    if (!roomName || !joinerToken) {
+      return res.status(400).json({ error: 'Missing roomName or joinerToken' });
+    }
+    try {
+      const room = await Room.findOne({ where: { roomName, joinerToken } });
+      if (!room || !room.joinerToken) {
+        return res.status(403).json({ error: 'Invalid room or joiner token' });
+      }
+      if (!room.encryptedSecret) {
+        return res.status(404).json({ message: 'encryptedSecret not found' });
+      }
+      res.status(200).json({ encryptedSecret: room.encryptedSecret });
+    } catch (error) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  },
+}
+export default keyExchangeCtrl;
+

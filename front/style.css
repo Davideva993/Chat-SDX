@@ -1,0 +1,96 @@
+#nameAndSecretCodeSection {
+    display: flex;
+    flex-direction: column;
+}
+
+#nameAndSecretCodeSection>span {
+    display: flex;
+    justify-content: space-between;
+}
+
+#nameAndSecretCodeSection input {
+    width: 60%;
+}
+
+body {
+    display: flex;
+    height: 100vh;
+    flex-direction: column;
+    margin: 0 10px;
+    justify-content: space-between;
+}
+
+.drawingSec {
+    display: flex;
+    flex-direction: column;
+}
+
+.stepContainer img {
+    height: 50px;
+    width: 50px;
+}
+
+.stepContainer span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 5px;
+    border: solid 6px transparent
+}
+
+.destroyChatImgContainer {
+    justify-content: flex-start !important;
+    align-items: flex-start !important;
+}
+
+#destroyChatHostP,#destroyChatJoinerP {
+    color: red;
+    font-weight: 600;
+    font-size: xx-large;
+    position: absolute;
+}
+
+.stepCompleted {
+    background-color: greenyellow;
+}
+
+.stepFailed {
+    background-color: red;
+}
+
+.stepContainer {
+    display: flex;
+    align-items: center;
+}
+
+.tempKeyImgContainer {
+    border: solid grey 6px !important;
+}
+
+.initKeyImgContainerBorderEffect {
+    border: solid #FF0000 6px !important;
+    transition: border 2s ease;
+
+}
+
+.defKeyImgContainerBorderEffect {
+    border: solid rgb(54, 153, 0) 6px !important;
+    transition: border 2s ease;
+
+}
+
+.lockStatusImgContainerBorderEffect {
+    border: solid #0011FF 6px !important;
+    transition: border 2s ease;
+}
+
+b {
+    color: gray;
+    text-decoration: underline;
+    font-size: larger;
+}
+
+
+#sendSection{
+    display: flex
+}
