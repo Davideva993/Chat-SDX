@@ -29,6 +29,9 @@ The **temporarily secure external channel** should not be compromised until the 
 7)The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is removed, and the clean defKey is imported. The self-destruct timer is cleared.
 8)The host Encrypts the secretCode2 using the defKey and sends it to the server.
 9)The joiner ask for the encrypted SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
+----the chat starts---
+10)The sender generates an AES + nonce. Encrypts it using currentDefKey (defKey for the first time) and send. Then generate the "next" currentNextDefKey that is the AES derived with the secretCode2
+11)The receiver decrypts using currentDefKey, get the AES, derives it with secretCode2 to generate the next currentDefKey 
 
 
    ## Backend

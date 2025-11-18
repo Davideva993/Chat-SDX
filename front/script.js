@@ -10,6 +10,9 @@
 7) The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is removed, and the clean defKey is imported. The self-destruct timer is cleared.
 8)The host Encrypts the secretCode2 using the defKey and sends it to the server.
 9)The joiner ask for the encrypted SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
+----the chat starts---
+10)The sender generates an AES + nonce. Encrypts it using currentDefKey (defKey for the first time) and send. Then generate the "next" currentNextDefKey that is the AES derived with the secretCode2
+11)The receiver decrypts using currentDefKey, get the AES, derives it with secretCode2 to generate the next currentDefKey 
 
 
 */
@@ -290,7 +293,6 @@ function app() {
         } catch (error) {
             console.error('Errore nella derivazione della chiave:', error);
             stepsAnimation("tempKey", "host", "failed")
-
             throw error;
         }
     }
@@ -616,114 +618,114 @@ function app() {
 
 
     // 6) The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server.
-async function joinerEncryptsAndSendsDefKey() {
-    try {
-        stepsAnimation("defKey", "joiner", "completed");
-        // Export defKey as raw (ArrayBuffer)
-        const defKeyRaw = await crypto.subtle.exportKey('raw', defKey);
-        // Generate a secure random nonce (16 bytes = 128 bits)
-        const nonce = crypto.getRandomValues(new Uint8Array(16));
-        // Concatenate defKey + nonce
-        const defKeyWithNonce = new Uint8Array(defKeyRaw.byteLength + nonce.byteLength);
-        defKeyWithNonce.set(new Uint8Array(defKeyRaw), 0);
-        defKeyWithNonce.set(nonce, defKeyRaw.byteLength);
-        // Encrypt the combined buffer with RSA-OAEP
-        const encrypted = await crypto.subtle.encrypt(
-            { name: 'RSA-OAEP' },
-            initKeyCrypto,
-            defKeyWithNonce
-        );
-        // Convert to base64
-        const base64EncryptedDefKey = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
-        showBorderEffect("joiner", "defKeyImgContainer");
-        // Send to server
-        await fetch('http://localhost:3001/api/joinerSendsEncryptedDefKey', {
+    async function joinerEncryptsAndSendsDefKey() {
+        try {
+            stepsAnimation("defKey", "joiner", "completed");
+            // Export defKey as raw (ArrayBuffer)
+            const defKeyRaw = await crypto.subtle.exportKey('raw', defKey);
+            // Generate a secure random nonce (16 bytes = 128 bits)
+            const nonce = crypto.getRandomValues(new Uint8Array(16));
+            // Concatenate defKey + nonce
+            const defKeyWithNonce = new Uint8Array(defKeyRaw.byteLength + nonce.byteLength);
+            defKeyWithNonce.set(new Uint8Array(defKeyRaw), 0);
+            defKeyWithNonce.set(nonce, defKeyRaw.byteLength);
+            // Encrypt the combined buffer with RSA-OAEP
+            const encrypted = await crypto.subtle.encrypt(
+                { name: 'RSA-OAEP' },
+                initKeyCrypto,
+                defKeyWithNonce
+            );
+            // Convert to base64
+            const base64EncryptedDefKey = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+            showBorderEffect("joiner", "defKeyImgContainer");
+            // Send to server
+            await fetch('http://localhost:3001/api/joinerSendsEncryptedDefKey', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    roomName,
+                    joinerToken,
+                    encryptedDefKey: base64EncryptedDefKey,
+                })
+            });
+            timer("joiner", "start");
+            joinerAsksForEncryptedSecret();
+        } catch (error) {
+            console.error("Error encrypting defKey:", error);
+            stepsAnimation("defKey", "joiner", "failed");
+        }
+    }
+
+
+
+    /* 7) The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is removed, and the clean defKey is imported. The self-destruct timer is cleared.*/
+    function hostAsksForEncryptedDefKey() {
+        fetch('http://localhost:3001/api/hostAsksForEncryptedDefKey', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                roomName,
-                joinerToken,
-                encryptedDefKey: base64EncryptedDefKey,
+                roomName: roomName,
+                hostToken: hostToken
             })
-        });
-        timer("joiner", "start");
-        joinerAsksForEncryptedSecret();
-    } catch (error) {
-        console.error("Error encrypting defKey:", error);
-        stepsAnimation("defKey", "joiner", "failed");
-    }
-}
-
-
-
-  /* 7) The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is removed, and the clean defKey is imported. The self-destruct timer is cleared.*/
-function hostAsksForEncryptedDefKey() {
-    fetch('http://localhost:3001/api/hostAsksForEncryptedDefKey', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            roomName: roomName,
-            hostToken: hostToken
         })
-    })
-    .then(response => {
-        if (response.status === 404) {
-            return response.json().then(data => {
-                console.log(data.error); // "defKey not ready"
-                setTimeout(hostAsksForEncryptedDefKey, 1500);
+            .then(response => {
+                if (response.status === 404) {
+                    return response.json().then(data => {
+                        console.log(data.error); // "defKey not ready"
+                        setTimeout(hostAsksForEncryptedDefKey, 1500);
+                    });
+                }
+                if (!response.ok) {
+                    stepsAnimation("defKey", "host", "failed");
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                hostDecryptsDefKey(data.encryptedDefKey);
+                showBorderEffect("host", "defKeyImgContainer");
+            })
+            .catch(error => {
+                console.error('Error requesting defKey:', error);
             });
-        }
-        if (!response.ok) {
-            stepsAnimation("defKey", "host", "failed");
-            throw new Error(`HTTP ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        hostDecryptsDefKey(data.encryptedDefKey);
-        showBorderEffect("host", "defKeyImgContainer");
-    })
-    .catch(error => {
-        console.error('Error requesting defKey:', error);
-    });
-}
-
-// Decrypt the ciphertext, strip the trailing 16-byte nonce and import the AES key.
-async function hostDecryptsDefKey(base64EncryptedDefKey) {
-    try {
-        // 1. base64 → Uint8Array
-        const encryptedData = Uint8Array.from(
-            atob(base64EncryptedDefKey),
-            c => c.charCodeAt(0)
-        );
-        // 2. RSA-OAEP decryption (returns defKey || nonce)
-        const decryptedWithNonce = await crypto.subtle.decrypt(
-            { name: 'RSA-OAEP' },
-            keyPair.privateKey,
-            encryptedData
-        );
-        // 3. Convert to Uint8Array and drop the last 16 bytes
-        const fullArray = new Uint8Array(decryptedWithNonce);
-        const NONCE_LENGTH = 16;
-        if (fullArray.byteLength <= NONCE_LENGTH) {
-            throw new Error('Decrypted payload too short – missing nonce');
-        }
-        const defKeyRaw = fullArray.slice(0, -NONCE_LENGTH);
-        defKey = await crypto.subtle.importKey(
-            'raw',
-            defKeyRaw,
-            { name: 'AES-GCM' },
-            false,
-            ['encrypt', 'decrypt']
-        );
-        timer("host", "stop");
-        hostEncryptsTheSecret(defKey);
-        stepsAnimation("validated", "host", "completed");
-    } catch (error) {
-        console.error('Decryption/import error:', error);
-        stepsAnimation("defKey", "host", "failed");
     }
-}
+
+    // Decrypt the ciphertext, strip the trailing 16-byte nonce and import the AES key.
+    async function hostDecryptsDefKey(base64EncryptedDefKey) {
+        try {
+            // 1. base64 → Uint8Array
+            const encryptedData = Uint8Array.from(
+                atob(base64EncryptedDefKey),
+                c => c.charCodeAt(0)
+            );
+            // 2. RSA-OAEP decryption (returns defKey || nonce)
+            const decryptedWithNonce = await crypto.subtle.decrypt(
+                { name: 'RSA-OAEP' },
+                keyPair.privateKey,
+                encryptedData
+            );
+            // 3. Convert to Uint8Array and drop the last 16 bytes
+            const fullArray = new Uint8Array(decryptedWithNonce);
+            const NONCE_LENGTH = 16;
+            if (fullArray.byteLength <= NONCE_LENGTH) {
+                throw new Error('Decrypted payload too short – missing nonce');
+            }
+            const defKeyRaw = fullArray.slice(0, -NONCE_LENGTH);
+            defKey = await crypto.subtle.importKey(
+                'raw',
+                defKeyRaw,
+                { name: 'AES-GCM' },
+                false,
+                ['encrypt', 'decrypt']
+            );
+            timer("host", "stop");
+            hostEncryptsTheSecret(defKey);
+            stepsAnimation("validated", "host", "completed");
+        } catch (error) {
+            console.error('Decryption/import error:', error);
+            stepsAnimation("defKey", "host", "failed");
+        }
+    }
 
     //8)The host Encrypts the secretCode2 using the defKey and sends it to the server.
     async function hostEncryptsTheSecret() {
@@ -758,6 +760,7 @@ async function hostDecryptsDefKey(base64EncryptedDefKey) {
 
 
     function hostSendsEncryptedSecret(base64EncryptedSecret) {
+        currentDefKey = defKey;
         fetch('http://localhost:3001/api/hostSendsEncryptedSecret', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -841,6 +844,7 @@ async function hostDecryptsDefKey(base64EncryptedDefKey) {
             stepsAnimation("chat", "joiner", "completed")
             timer("joiner", "stop")
             alert("host is certified!")
+            currentDefKey = defKey
             setTimeout(() => {
                 updateDynamicElements("chatPage")
                 if (!joinerGetsMsgInterval) {
@@ -862,6 +866,8 @@ async function hostDecryptsDefKey(base64EncryptedDefKey) {
 
     let joinerGetsMsgInterval = null
     let hostGetsMsgInterval = null
+    let currentDefKey = null
+
 
     document.getElementById("sendMsgBtn").addEventListener("click", encryptTheMessage)
     document.getElementById("destroyChatBtn").addEventListener("click", deleteRoom)
@@ -943,7 +949,7 @@ async function hostDecryptsDefKey(base64EncryptedDefKey) {
                     message: base64EncryptedMsg
                 })
             });
-            if (res.status == "403") {
+            if (response.status == "403") {
                 alert("This chat is lost or deleted.")
                 location.reload()
                 return false
@@ -976,7 +982,7 @@ async function hostDecryptsDefKey(base64EncryptedDefKey) {
                     message: base64EncryptedMsg
                 })
             });
-            if (res.status == "403") {
+            if (response.status == "403") {
                 alert("This chat is lost or deleted.")
                 location.reload()
                 return false
@@ -996,8 +1002,29 @@ async function hostDecryptsDefKey(base64EncryptedDefKey) {
             return false;
         }
     }
+    async function deriveNextCurrentDefKey(passwordRaw, saltString) {
+        const passwordBuffer = passwordRaw;
+        const saltBuffer = new TextEncoder().encode(saltString);
+        const hash = await argon2.hash({
+            pass: passwordBuffer,
+            salt: saltBuffer,
+            time: 3,
+            mem: 32768,
+            hashLen: 32,
+            parallelism: 1,
+            type: argon2.Argon2id
+        });
+        return await crypto.subtle.importKey(
+            'raw',
+            hash.hash,
+            { name: 'AES-GCM' },
+            false,
+            ['encrypt', 'decrypt']
+        );
+    }
 
     async function encryptTheMessage() {
+        console.log(secretCode2)
         let message = document.getElementById("messageInput").value
         if (message == "") {
             alert("The message is empty.")
@@ -1005,28 +1032,40 @@ async function hostDecryptsDefKey(base64EncryptedDefKey) {
         }
         try {
             showMsg(message, "me")
-            // Convert secret (string) to ArrayBuffer
+            // Generate a new AES (first step to get the currentDefKey)
+            const nextAesKey = await crypto.subtle.generateKey(
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"]
+            );
             const encoder = new TextEncoder();
             const msgData = encoder.encode(message);
+            const nextAesRaw = new Uint8Array(await crypto.subtle.exportKey("raw", nextAesKey));
+            const fullPayload = new Uint8Array(msgData.byteLength + 32);
+            fullPayload.set(msgData, 0);
+            fullPayload.set(new Uint8Array(nextAesRaw), msgData.byteLength)
+            // Convert secret (string) to ArrayBuffer
             const nonce = crypto.getRandomValues(new Uint8Array(12));
-            // Encrypt with defKey (AES-GCM)
+            // Encrypt with currentDefKey (AES-GCM)
             const encrypted = await crypto.subtle.encrypt(
                 { name: 'AES-GCM', iv: nonce },
-                defKey,
-                msgData
+                currentDefKey,
+                fullPayload
             );
             // Concatenate nonce + ciphertext
             const result = new Uint8Array(nonce.byteLength + encrypted.byteLength);
             result.set(nonce, 0);
             result.set(new Uint8Array(encrypted), nonce.byteLength);
             // Convert to base64 for sending
-            const base64EncryptedMsg = btoa(String.fromCharCode(...result));
+            const base64EncryptedMsg = btoa(String.fromCharCode(...new Uint8Array(result)));
             if (userName == "host") {
-                hostSendsMessage(base64EncryptedMsg)
+                await hostSendsMessage(base64EncryptedMsg)
             }
             else if (userName == "joiner") {
-                joinerSendsMessage(base64EncryptedMsg)
+                await joinerSendsMessage(base64EncryptedMsg)
             }
+            currentDefKey = await deriveNextCurrentDefKey(nextAesRaw, secretCode2)
+
         } catch (error) {
             console.error(error);
         }
@@ -1039,15 +1078,20 @@ async function hostDecryptsDefKey(base64EncryptedDefKey) {
             // Extract nonce (first 12 bytes) and ciphertext (remaining bytes)
             const nonce = encryptedWithNonce.slice(0, 12);
             const ciphertext = encryptedWithNonce.slice(12);
-            // Decrypt using defKey and the extracted nonce
+            // Decrypt using currentDefKey and the extracted nonce
             const decrypted = await crypto.subtle.decrypt(
                 { name: 'AES-GCM', iv: nonce },
-                defKey,
+                currentDefKey,
                 ciphertext
             );
+            const full = new Uint8Array(decrypted);
+            const msgLength = full.byteLength - 32;
+            const msgBytes = full.slice(0, msgLength);
+            const nextAesRaw = new Uint8Array(full.slice(msgLength));
             // Convert decrypted ArrayBuffer to string
-            const msg = new TextDecoder().decode(decrypted);
+            const msg = new TextDecoder().decode(msgBytes);
             showMsg(msg, "partner")
+            currentDefKey = await deriveNextCurrentDefKey(nextAesRaw, secretCode2)
         } catch (error) {
             console.error(error);
             throw error;
