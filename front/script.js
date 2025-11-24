@@ -11,10 +11,8 @@
 8)The host Encrypts the secretCode2 using the defKey and sends it to the server.
 9)The joiner ask for the encrypted SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
 ----the chat starts---
-10)The sender generates an AES + nonce. Encrypts it using currentDefKey (defKey for the first time) and send. Then generate the "next" currentNextDefKey that is the AES derived with the secretCode2
-11)The receiver decrypts using currentDefKey, get the AES, derives it with secretCode2 to generate the next currentDefKey 
-
-
+10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey (defKey for the first time) and sends it. Then updates cumulativeNonce (first message: =derivationNonce; later: SHA-256(old||new)[0:11]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: =derivationNonce; later: SHA-256(old||new)[0:11]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 */
 function app() {
     'use strict'
@@ -35,6 +33,7 @@ function app() {
     let countdownInterval = null
     let countDownSeconds = 9
     let initKeyCrypto
+    let cumulativeNonce = null
 
     updateDynamicElements("landingPage")
     hostBtnStart.addEventListener("click", () => updateDynamicElements("hostPage"))
@@ -291,7 +290,7 @@ function app() {
             );
             tempKey = key
         } catch (error) {
-            console.error('Errore nella derivazione della chiave:', error);
+            console.error( error);
             stepsAnimation("tempKey", "host", "failed")
             throw error;
         }
@@ -486,7 +485,7 @@ function app() {
             tempKey = key
         } catch (error) {
             stepsAnimation("tempKey", "joiner", "failed")
-            console.error('Errore nella derivazione della chiave:', error);
+            console.error( error);
             throw error;
         }
     }
@@ -761,6 +760,7 @@ function app() {
 
     function hostSendsEncryptedSecret(base64EncryptedSecret) {
         currentDefKey = defKey;
+        defKey = null
         fetch('http://localhost:3001/api/hostSendsEncryptedSecret', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -845,6 +845,7 @@ function app() {
             timer("joiner", "stop")
             alert("host is certified!")
             currentDefKey = defKey
+            defKey = null
             setTimeout(() => {
                 updateDynamicElements("chatPage")
                 if (!joinerGetsMsgInterval) {
@@ -901,7 +902,7 @@ function app() {
             }
             const encryptedMessages = await response.json();
             for (let i = 0; i < encryptedMessages.length; i++) {
-                decryptTheMessage(encryptedMessages[i].message)
+                await decryptTheMessage(encryptedMessages[i].message)
             }
         } catch (error) {
             console.error("Errore recupero messaggio:", error);
@@ -930,7 +931,7 @@ function app() {
             }
             const encryptedMessages = await response.json();
             for (let i = 0; i < encryptedMessages.length; i++) {
-                decryptTheMessage(encryptedMessages[i].message)
+                await decryptTheMessage(encryptedMessages[i].message)
             }
         } catch (error) {
             console.error("Error:", error);
@@ -1002,99 +1003,142 @@ function app() {
             return false;
         }
     }
-    async function deriveNextCurrentDefKey(passwordRaw, saltString) {
-        const passwordBuffer = passwordRaw;
-        const saltBuffer = new TextEncoder().encode(saltString);
+
+    async function deriveNextCurrentDefKey(nextAesRaw) {
+        // Build dynamic salt: secretCode2 + cumulative nonce (12 bytes)
+        const secretBytes = new TextEncoder().encode(secretCode2)
+        let salt = new Uint8Array(secretBytes.length + 12);
+        salt.set(secretBytes)
+        salt.set(cumulativeNonce, secretBytes.length)
         const hash = await argon2.hash({
-            pass: passwordBuffer,
-            salt: saltBuffer,
+            pass: nextAesRaw,
+            salt: salt,
             time: 3,
             mem: 32768,
             hashLen: 32,
             parallelism: 1,
             type: argon2.Argon2id
-        });
-        return await crypto.subtle.importKey(
-            'raw',
+        })
+        const newKey = await crypto.subtle.importKey(
+            "raw",
             hash.hash,
-            { name: 'AES-GCM' },
+            { name: "AES-GCM" },
             false,
-            ['encrypt', 'decrypt']
-        );
+            ["encrypt", "decrypt"]
+        )
+        currentDefKey = newKey
+        return currentDefKey
     }
 
+
+
+
     async function encryptTheMessage() {
-        console.log(secretCode2)
-        let message = document.getElementById("messageInput").value
-        if (message == "") {
-            alert("The message is empty.")
-            return
+        let message = document.getElementById("messageInput").value;
+        if (message.trim() === "") {
+            alert("The message is empty.");
+            return;
         }
         try {
-            showMsg(message, "me")
-            // Generate a new AES (first step to get the currentDefKey)
+            showMsg(message, "me");
+            // 1. Generate the next random AES key that will be derived (secretCode2 + cumulativeNonce) and used after this message
             const nextAesKey = await crypto.subtle.generateKey(
                 { name: "AES-GCM", length: 256 },
                 true,
                 ["encrypt", "decrypt"]
             );
+            const nextAesRaw = new Uint8Array(await crypto.subtle.exportKey("raw", nextAesKey));
+            // 2. Generate a fresh derivation nonce (12 bytes) that will be cumulated and used (with secretCode2) to derive the key for the NEXT message
+            const derivationNonce = crypto.getRandomValues(new Uint8Array(12));
+            // 3. Build the payload: message || nextAesKey (32) || derivationNonce (12)
             const encoder = new TextEncoder();
             const msgData = encoder.encode(message);
-            const nextAesRaw = new Uint8Array(await crypto.subtle.exportKey("raw", nextAesKey));
-            const fullPayload = new Uint8Array(msgData.byteLength + 32);
-            fullPayload.set(msgData, 0);
-            fullPayload.set(new Uint8Array(nextAesRaw), msgData.byteLength)
-            // Convert secret (string) to ArrayBuffer
-            const nonce = crypto.getRandomValues(new Uint8Array(12));
-            // Encrypt with currentDefKey (AES-GCM)
+            const payload = new Uint8Array(msgData.byteLength + 32 + 12);
+            payload.set(msgData, 0);
+            payload.set(nextAesRaw, msgData.byteLength);
+            payload.set(derivationNonce, msgData.byteLength + 32);
+            // 4. Standard AES-GCM IV (still sent in clear – required by the algorithm)
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            // 5. Encrypt everything with the current key
             const encrypted = await crypto.subtle.encrypt(
-                { name: 'AES-GCM', iv: nonce },
+                { name: 'AES-GCM', iv },
                 currentDefKey,
-                fullPayload
+                payload
             );
-            // Concatenate nonce + ciphertext
-            const result = new Uint8Array(nonce.byteLength + encrypted.byteLength);
-            result.set(nonce, 0);
-            result.set(new Uint8Array(encrypted), nonce.byteLength);
-            // Convert to base64 for sending
-            const base64EncryptedMsg = btoa(String.fromCharCode(...new Uint8Array(result)));
-            if (userName == "host") {
-                await hostSendsMessage(base64EncryptedMsg)
-            }
-            else if (userName == "joiner") {
-                await joinerSendsMessage(base64EncryptedMsg)
-            }
-            currentDefKey = await deriveNextCurrentDefKey(nextAesRaw, secretCode2)
+            // 6. Prepend IV and convert to base64
+            const result = new Uint8Array(iv.byteLength + encrypted.byteLength);
+            result.set(iv, 0);
+            result.set(new Uint8Array(encrypted), iv.byteLength);
+            const base64EncryptedMsg = btoa(String.fromCharCode(...result));
 
+            // 7. Send message
+            if (userName === "host") {
+                await hostSendsMessage(base64EncryptedMsg);
+            } else {
+                await joinerSendsMessage(base64EncryptedMsg);
+            }
+            // 8. Save the derivation nonce for the next key derivation
+            if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {
+                // first message
+                cumulativeNonce = derivationNonce.slice(0, 12);
+            } else {
+                // others messages
+                const combined = new Uint8Array(24);
+                combined.set(cumulativeNonce, 0);
+                combined.set(derivationNonce, 12);
+                const hash = await crypto.subtle.digest("SHA-256", combined);
+                cumulativeNonce = new Uint8Array(hash.slice(0, 12));  // sempre 12 byte
+            }
+            // 9. Derive the new current key from the nextAesKey (using secretCode2 + derivationNonce from previous msg)
+            currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
         } catch (error) {
-            console.error(error);
+            console.error("Encryption failed:", error);
+            alert("Failed to send message");
         }
     }
 
     async function decryptTheMessage(base64EncryptedMsg) {
         try {
-            // Decode base64 to get nonce + ciphertext
-            const encryptedWithNonce = Uint8Array.from(atob(base64EncryptedMsg), c => c.charCodeAt(0));
-            // Extract nonce (first 12 bytes) and ciphertext (remaining bytes)
-            const nonce = encryptedWithNonce.slice(0, 12);
-            const ciphertext = encryptedWithNonce.slice(12);
-            // Decrypt using currentDefKey and the extracted nonce
+            // 1. Decode base64 → IV (12) + ciphertext
+            const encryptedWithIv = Uint8Array.from(atob(base64EncryptedMsg), c => c.charCodeAt(0));
+            const iv = encryptedWithIv.slice(0, 12);
+            const ciphertext = encryptedWithIv.slice(12);
+            // 2. Decrypt with current key
             const decrypted = await crypto.subtle.decrypt(
-                { name: 'AES-GCM', iv: nonce },
+                { name: 'AES-GCM', iv },
                 currentDefKey,
                 ciphertext
             );
             const full = new Uint8Array(decrypted);
-            const msgLength = full.byteLength - 32;
+            /* 3. Extract parts:
+                - message (variable length)
+                - nextAesKey raw (32 bytes)
+                - derivation nonce for the NEXT key (12 bytes) 
+            */
+            const totalFixed = 32 + 12;                         // 44 bytes fixed at the end
+            const msgLength = full.byteLength - totalFixed;
+            if (msgLength < 0) throw new Error("Corrupted payload");
             const msgBytes = full.slice(0, msgLength);
-            const nextAesRaw = new Uint8Array(full.slice(msgLength));
-            // Convert decrypted ArrayBuffer to string
+            const nextAesRaw = full.slice(msgLength, msgLength + 32);
+            const derivationNonce = full.slice(msgLength + 32);
+            // 4. Show message
             const msg = new TextDecoder().decode(msgBytes);
-            showMsg(msg, "partner")
-            currentDefKey = await deriveNextCurrentDefKey(nextAesRaw, secretCode2)
+            showMsg(msg, "partner");
+            // 5. Save the derivation nonce (was encrypted in the previous message)
+            if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {//this is the first message
+                cumulativeNonce = derivationNonce.slice(0, 12);
+            } else { //if not the first message, cumulativeNonce depends on all previous derivationNonces
+                const combined = new Uint8Array(24);
+                combined.set(cumulativeNonce, 0);
+                combined.set(derivationNonce, 12);
+                const hash = await crypto.subtle.digest("SHA-256", combined);
+                cumulativeNonce = new Uint8Array(hash.slice(0, 12));  // always 12 byte
+            }
+            // 6. Derive the next currentDefKey using the new cumulativeNonce
+            currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
         } catch (error) {
-            console.error(error);
-            throw error;
+            console.error("Decryption failed:", error);
+            alert("Message corrupted or out of order");
         }
     }
 
