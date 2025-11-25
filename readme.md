@@ -35,8 +35,8 @@ Once launched, every message uses a **unique key** derived with an hash that inc
 5)The joiner asks for the nonce and encrypted initKey. Then he generates the tempKey (secretCode1, nonce and Argon) and uses it to decrypt the initKey
 6)The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server.
 7)The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is removed, and the clean defKey is imported. The self-destruct timer is cleared.
-8)The host Encrypts the secretCode2 using the defKey and sends it to the server.
-9)The joiner ask for the encrypted SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
+8)The host Encrypts the hash of secretCode2 using the defKey and sends it to the server.
+9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
 ----the chat starts---
 10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey (defKey for the first time) and sends it. Then updates cumulativeNonce (first message: =derivationNonce; later: SHA-256(old||new)[0:11]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: =derivationNonce; later: SHA-256(old||new)[0:11]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
@@ -52,8 +52,8 @@ Once launched, every message uses a **unique key** derived with an hash that inc
   STEP 5: joinerAsksForEncryptedInitKeyAndNonce()     roomName, joinerToken                    en. initKey
   STEP 6: joinerSendsEncryptedDefKey()                roomName, joinerToken, en. defKey        ------
   STEP 7: hostAsksForEncryptedDefKey()                roomName, hostToken                      en. defKey
-  STEP 8: hostSendsEncryptedSecret()                  roomName, hostToken, en. secret          -------
-  STEP 9: joinerAsksForEncryptedSecret()              roomName, joinerToken                    en. secret
+  STEP 8: hostSendsEncryptedSecret()                  roomName, hostToken, en. hashed secret   -------
+  STEP 9: joinerAsksForEncryptedSecret()              roomName, joinerToken                    en. hashed secret
   -------------------------------------------CHAT STARTS----------------------------------------------------
   Message structure: currentDefKey { message || nextAesKey || derivationNonce(12) } 
 

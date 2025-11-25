@@ -8,8 +8,8 @@
 5)The joiner asks for the nonce and encrypted initKey. Then he generates the tempKey (secretCode1, nonce and Argon) and uses it to decrypt the initKey
 6) The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server.
 7) The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is removed, and the clean defKey is imported. The self-destruct timer is cleared.
-8)The host Encrypts the secretCode2 using the defKey and sends it to the server.
-9)The joiner ask for the encrypted SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
+8)The host Encrypts the hash of secretCode2 using the defKey and sends it to the server.
+9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
 ----the chat starts---
 10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey (defKey for the first time) and sends it. Then updates cumulativeNonce (first message: =derivationNonce; later: SHA-256(old||new)[0:11]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: =derivationNonce; later: SHA-256(old||new)[0:11]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
@@ -290,7 +290,7 @@ function app() {
             );
             tempKey = key
         } catch (error) {
-            console.error( error);
+            console.error(error);
             stepsAnimation("tempKey", "host", "failed")
             throw error;
         }
@@ -485,7 +485,7 @@ function app() {
             tempKey = key
         } catch (error) {
             stepsAnimation("tempKey", "joiner", "failed")
-            console.error( error);
+            console.error(error);
             throw error;
         }
     }
@@ -726,7 +726,7 @@ function app() {
         }
     }
 
-    //8)The host Encrypts the secretCode2 using the defKey and sends it to the server.
+    //8)The host Encrypts the hash of secretCode2 using the defKey and sends it to the server.
     async function hostEncryptsTheSecret() {
         try {
             if (!defKey) {
@@ -735,22 +735,25 @@ function app() {
             }
             // Convert secret (string) to ArrayBuffer
             const encoder = new TextEncoder();
-            const secretData = encoder.encode(secretCode2);
+            const dataToHash = encoder.encode(secretCode2);
+            //Hash
+            const hashBuffer = await crypto.subtle.digest('SHA-256', dataToHash);
+            const secretToEncrypt = new Uint8Array(hashBuffer)
             const nonce = crypto.getRandomValues(new Uint8Array(12));
             // Encrypt with defKey (AES-GCM)
             const encrypted = await crypto.subtle.encrypt(
                 { name: 'AES-GCM', iv: nonce },
                 defKey,
-                secretData
+                secretToEncrypt
             );
             // Concatenate nonce + ciphertext
             const result = new Uint8Array(nonce.byteLength + encrypted.byteLength);
             result.set(nonce, 0);
             result.set(new Uint8Array(encrypted), nonce.byteLength);
             // Convert to base64 for sending
-            const base64EncryptedSecret = btoa(String.fromCharCode(...result));
+            const base64EncryptedHash = btoa(String.fromCharCode(...result));
             showBorderEffect("host", "lockStatusImgContainer")
-            hostSendsEncryptedSecret(base64EncryptedSecret);
+            hostSendsEncryptedSecret(base64EncryptedHash);
         } catch (error) {
             stepsAnimation("validated", "host", "failed")
             console.error("Errore crittografia secret:", error);
@@ -758,7 +761,7 @@ function app() {
     }
 
 
-    function hostSendsEncryptedSecret(base64EncryptedSecret) {
+    function hostSendsEncryptedSecret(base64EncryptedHash) {
         currentDefKey = defKey;
         defKey = null
         fetch('http://localhost:3001/api/hostSendsEncryptedSecret', {
@@ -767,7 +770,7 @@ function app() {
             body: JSON.stringify({
                 roomName: roomName,
                 hostToken: hostToken,
-                encryptedSecret: base64EncryptedSecret
+                encryptedSecret: base64EncryptedHash
             })
         })
             .then(response => response.json())
@@ -785,7 +788,7 @@ function app() {
 
             });
     }
-    //9)The joiner ask for the encrypted SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
+    //9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
     async function joinerAsksForEncryptedSecret() {
         try {
             stepsAnimation("validated", "joiner", "completed")
@@ -831,16 +834,22 @@ function app() {
                 defKey,
                 ciphertext
             );
-            // Convert decrypted ArrayBuffer to string
-            const secret = new TextDecoder().decode(decrypted);
-            joinerValidatesTheHost(secret)
+            const receivedSecretHash = new Uint8Array(decrypted)
+            joinerValidatesTheHost(receivedSecretHash)
         } catch (error) {
             stepsAnimation("validated", "joiner", "failed")
             throw error;
         }
     }
-    function joinerValidatesTheHost(secret) {
-        if (secret == secretCode2) {
+
+    async function joinerValidatesTheHost(receivedSecretHash) {
+        const encoder = new TextEncoder();
+        const myHashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(secretCode2));
+        const myHash = new Uint8Array(myHashBuffer)
+        const a = receivedSecretHash;
+        const b = myHash;
+        console.log(a,b)
+        if (a.length === b.length && a.toString() === b.toString()) {
             stepsAnimation("chat", "joiner", "completed")
             timer("joiner", "stop")
             alert("host is certified!")
@@ -852,8 +861,7 @@ function app() {
                     joinerGetsMsgInterval = setInterval(joinerAsksForMessage, 1000);
                 }
             }, 1000);
-        }
-        else {
+        } else {
             alert("host is not certified")
             deleteRoom()
             stepsAnimation("chat", "joiner", "failed")
