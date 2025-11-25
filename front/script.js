@@ -11,8 +11,8 @@
 8)The host Encrypts the hash of secretCode2 using the defKey and sends it to the server.
 9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
 ----the chat starts---
-10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey (defKey for the first time) and sends it. Then updates cumulativeNonce (first message: =derivationNonce; later: SHA-256(old||new)[0:11]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
-11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: =derivationNonce; later: SHA-256(old||new)[0:11]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey (defKey for the first time) and sends it. Then updates cumulativeNonce (first message: =derivationNonce; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: =derivationNonce; later: SHA-256(old||new)[0:15]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 */
 function app() {
     'use strict'
@@ -1013,9 +1013,9 @@ function app() {
     }
 
     async function deriveNextCurrentDefKey(nextAesRaw) {
-        // Build dynamic salt: secretCode2 + cumulative nonce (12 bytes)
+        // Build dynamic salt: secretCode2 + cumulative nonce (16 bytes)
         const secretBytes = new TextEncoder().encode(secretCode2)
-        let salt = new Uint8Array(secretBytes.length + 12);
+        let salt = new Uint8Array(secretBytes.length + 16);
         salt.set(secretBytes)
         salt.set(cumulativeNonce, secretBytes.length)
         const hash = await argon2.hash({
@@ -1056,12 +1056,12 @@ function app() {
                 ["encrypt", "decrypt"]
             );
             const nextAesRaw = new Uint8Array(await crypto.subtle.exportKey("raw", nextAesKey));
-            // 2. Generate a fresh derivation nonce (12 bytes) that will be cumulated and used (with secretCode2) to derive the key for the NEXT message
-            const derivationNonce = crypto.getRandomValues(new Uint8Array(12));
-            // 3. Build the payload: message || nextAesKey (32) || derivationNonce (12)
+            // 2. Generate a fresh derivation nonce (16 bytes) that will be cumulated and used (with secretCode2) to derive the key for the NEXT message
+            const derivationNonce = crypto.getRandomValues(new Uint8Array(16));
+            // 3. Build the payload: message || nextAesKey (32) || derivationNonce (16)
             const encoder = new TextEncoder();
             const msgData = encoder.encode(message);
-            const payload = new Uint8Array(msgData.byteLength + 32 + 12);
+            const payload = new Uint8Array(msgData.byteLength + 32 + 16);
             payload.set(msgData, 0);
             payload.set(nextAesRaw, msgData.byteLength);
             payload.set(derivationNonce, msgData.byteLength + 32);
@@ -1088,14 +1088,14 @@ function app() {
             // 8. Save the derivation nonce for the next key derivation
             if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {
                 // first message
-                cumulativeNonce = derivationNonce.slice(0, 12);
+                cumulativeNonce = derivationNonce
             } else {
                 // others messages
-                const combined = new Uint8Array(24);
+                const combined = new Uint8Array(32);
                 combined.set(cumulativeNonce, 0);
-                combined.set(derivationNonce, 12);
+                combined.set(derivationNonce, 16);
                 const hash = await crypto.subtle.digest("SHA-256", combined);
-                cumulativeNonce = new Uint8Array(hash.slice(0, 12));  // sempre 12 byte
+                cumulativeNonce = hash.slice(0, 16);  // always 16 byte
             }
             // 9. Derive the new current key from the nextAesKey (using secretCode2 + derivationNonce from previous msg)
             currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
@@ -1123,7 +1123,7 @@ function app() {
                 - nextAesKey raw (32 bytes)
                 - derivation nonce for the NEXT key (12 bytes) 
             */
-            const totalFixed = 32 + 12;                         // 44 bytes fixed at the end
+            const totalFixed = 32 + 16;                         // 48 bytes fixed at the end
             const msgLength = full.byteLength - totalFixed;
             if (msgLength < 0) throw new Error("Corrupted payload");
             const msgBytes = full.slice(0, msgLength);
@@ -1134,13 +1134,13 @@ function app() {
             showMsg(msg, "partner");
             // 5. Save the derivation nonce (was encrypted in the previous message)
             if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {//this is the first message
-                cumulativeNonce = derivationNonce.slice(0, 12);
+                cumulativeNonce = derivationNonce
             } else { //if not the first message, cumulativeNonce depends on all previous derivationNonces
-                const combined = new Uint8Array(24);
+                const combined = new Uint8Array(32);
                 combined.set(cumulativeNonce, 0);
-                combined.set(derivationNonce, 12);
+                combined.set(derivationNonce, 16);
                 const hash = await crypto.subtle.digest("SHA-256", combined);
-                cumulativeNonce = new Uint8Array(hash.slice(0, 12));  // always 12 byte
+                cumulativeNonce = hash.slice(0, 16);  // always 16 byte
             }
             // 6. Derive the next currentDefKey using the new cumulativeNonce
             currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);

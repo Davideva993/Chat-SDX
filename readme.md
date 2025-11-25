@@ -38,8 +38,8 @@ Once launched, every message uses a **unique key** derived with an hash that inc
 8)The host Encrypts the hash of secretCode2 using the defKey and sends it to the server.
 9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
 ----the chat starts---
-10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey (defKey for the first time) and sends it. Then updates cumulativeNonce (first message: =derivationNonce; later: SHA-256(old||new)[0:11]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
-11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: =derivationNonce; later: SHA-256(old||new)[0:11]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey (defKey for the first time) and sends it. Then updates cumulativeNonce (first message: =derivationNonce; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: =derivationNonce; later: SHA-256(old||new)[0:15]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
  
 
 
@@ -55,10 +55,10 @@ Once launched, every message uses a **unique key** derived with an hash that inc
   STEP 8: hostSendsEncryptedSecret()                  roomName, hostToken, en. hashed secret   -------
   STEP 9: joinerAsksForEncryptedSecret()              roomName, joinerToken                    en. hashed secret
   -------------------------------------------CHAT STARTS----------------------------------------------------
-  Message structure: currentDefKey { message || nextAesKey || derivationNonce(12) } 
+  Message structure: currentDefKey { message || nextAesKey || derivationNonce(16) } 
 
 
-  *cumulativeNonce= hash-chain of all previous derivationNonces (always 12 B)
+  *cumulativeNonce= hash-chain of all previous derivationNonces (always 16 B)
   *currentDefKey= Argon2id(nextAesKey, secretCode2 + cumulativeNonce)
 
 
