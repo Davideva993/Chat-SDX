@@ -1,6 +1,18 @@
 import { Room, Message } from '../models/db.js';
 import { Op } from 'sequelize';
+const timers = {};
+const autoDeleteTimer = 6 * 60 * 60  //6h
 // Controller for chat routes
+
+function inactivityTimerManager(roomName) {
+  if (timers[roomName]) clearTimeout(timers[roomName]);
+  timers[roomName] = setTimeout(async () => {
+    await Message.destroy({ where: { roomName } });
+    await Room.destroy({ where: { roomName } });
+    delete timers[roomName];
+    console.log("Room deleted:", roomName);
+  }, autoDeleteTimer);
+}
 const chatCtrl = {
 
   hostSendsMessage: async (req, res) => {
@@ -10,24 +22,29 @@ const chatCtrl = {
     const room = await Room.findOne({ where: { roomName, hostToken } });
     if (!room)
       return res.status(403).json({ error: 'Invalid room or hostToken' });
+    inactivityTimerManager(roomName)
     const pending = await Message.count({ where: { roomName, sender: 'host' } });
     if (pending >= 3)
       return res.status(429).json({ error: 'ci sono già 3 messaggi in attesa, aspetta' });
-    await Message.create({ roomName, sender: 'host', message, order:pending });
+    await Message.create({ roomName, sender: 'host', message, order: pending });
     res.json({ success: true });
   },
 
   joinerSendsMessage: async (req, res) => {
     const { joinerToken, roomName, message } = req.body;
-    if (!joinerToken || !roomName || !message){
-      return res.status(400).json({ error: 'Missing joinerToken, roomName, or message' })};
+    if (!joinerToken || !roomName || !message) {
+      return res.status(400).json({ error: 'Missing joinerToken, roomName, or message' })
+    };
     const room = await Room.findOne({ where: { roomName, joinerToken } });
-    if (!room){
-      return res.status(403).json({ error: 'Invalid room or joinerToken' })};
+    if (!room) {
+      return res.status(403).json({ error: 'Invalid room or joinerToken' })
+    };
+    inactivityTimerManager(roomName)
     const pending = await Message.count({ where: { roomName, sender: 'joiner' } });
-    if (pending >= 3){
-      return res.status(429).json({ error: 'ci sono già 3 messaggi in attesa, aspetta' })};
-    await Message.create({ roomName, sender: 'joiner', message , order:pending});
+    if (pending >= 3) {
+      return res.status(429).json({ error: 'ci sono già 3 messaggi in attesa, aspetta' })
+    };
+    await Message.create({ roomName, sender: 'joiner', message, order: pending });
     res.json({ success: true });
   },
 
@@ -77,6 +94,8 @@ const chatCtrl = {
     return res.status(200).json(encryptedMessages);
   },
 
+
+
   deleteRoom: async (req, res) => {
     const { token, roomName } = req.body;
     if (!token || !roomName)
@@ -89,6 +108,10 @@ const chatCtrl = {
     });
     if (!room)
       return res.status(403).json({ error: 'Invalid room or token' });
+    if (timers[roomName]) {
+      clearTimeout(timers[roomName]);
+      delete timers[roomName];
+    }
     await Message.destroy({ where: { roomName } });
     await room.destroy();
     res.status(200).json({ success: true });

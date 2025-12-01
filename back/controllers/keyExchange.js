@@ -6,7 +6,7 @@ const keyExchangeCtrl = {
   STEP 2: joinerFindsRoom()                           roomName                                 joinerToken 
   STEP 3: hostAsksForJoiner()                         roomName, hostToken                      ------
   STEP 4: hostSendsEncryptedInitKeyAndNonce()         roomName, hostToken en. initKey, nonce   ------
-  STEP 5: joinerAsksForEncryptedInitKeyAndNonce()             roomName, joinerToken                    en. initKey
+  STEP 5: joinerAsksForEncryptedInitKeyAndNonce()     roomName, joinerToken                    en. initKey
   STEP 6: joinerSendsEncryptedDefKey()                roomName, joinerToken, en. defKey        ------
   STEP 7: hostAsksForEncryptedDefKey()                roomName, hostToken                      en. defKey
   STEP 8: hostSendsEncryptedSecret()                  roomName, hostToken, en. secret          -------
@@ -50,6 +50,12 @@ const keyExchangeCtrl = {
       }
       const joinerToken = uuidv4();
       await room.update({ joinerToken });
+      setTimeout(() => {
+      Room.update(
+        { nonce: null, encryptedInitKey: null, encryptedDefKey: null, encryptedSecret: null },
+        { where: { roomName } }
+      ).catch(() => {})
+    }, 12_000)
       res.status(200).json({
         joinerToken,
       });
