@@ -1,7 +1,7 @@
 import { Room, Message } from '../models/db.js';
 import { Op } from 'sequelize';
 const timers = {};
-const autoDeleteTimer = 6 * 60 * 60 *1000  //6h
+const autoDeleteTimer = 6 * 60 * 60 * 1000  //6h
 // Controller for chat routes
 
 function inactivityTimerManager(roomName) {
@@ -25,7 +25,7 @@ const chatCtrl = {
     inactivityTimerManager(roomName)
     const pending = await Message.count({ where: { roomName, sender: 'host' } });
     if (pending >= 3)
-      return res.status(429).json({ error: 'ci sono già 3 messaggi in attesa, aspetta' });
+      return res.status(429).json({ error: 'Your partner has 3 pending messages: wait please' });
     await Message.create({ roomName, sender: 'host', message, order: pending });
     res.json({ success: true });
   },
@@ -42,7 +42,7 @@ const chatCtrl = {
     inactivityTimerManager(roomName)
     const pending = await Message.count({ where: { roomName, sender: 'joiner' } });
     if (pending >= 3) {
-      return res.status(429).json({ error: 'ci sono già 3 messaggi in attesa, aspetta' })
+      return res.status(429).json({ error: 'Your partner has 3 pending messages: wait please' })
     };
     await Message.create({ roomName, sender: 'joiner', message, order: pending });
     res.json({ success: true });

@@ -24,7 +24,7 @@ Once launched, every message uses a **unique key** derived with an hash that inc
 3. **Other**:
    -Only local variables to store information client-side.
    -Each message encrypted with a unique key derived using SC2 and cumulativeNonce: it depends on all previous derivationNonces.
-   -TOR between the client and the server.
+   -It’s suggested to host it through Tor.
    -Only the last 3 messages are kept on the server
    -The room auto-deletes after 6 hours if no one sends a message
    -The fields `nonce`, `encryptedInitKey`, `encryptedDefKey`, and `encryptedSecret` are automatically deleted 12 seconds after the joiner enters the room

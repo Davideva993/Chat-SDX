@@ -34,6 +34,7 @@ function app() {
     let countDownSeconds = 9
     let initKeyCrypto
     let cumulativeNonce = null
+    let sendOk = false
 
     updateDynamicElements("landingPage")
     hostBtnStart.addEventListener("click", () => updateDynamicElements("hostPage"))
@@ -972,6 +973,10 @@ function app() {
                 throw new Error(err.error || 'Send failed');
             }
             const data = await response.json();
+            sendOk = true
+            let message = document.getElementById("messageInput").value;
+            showMsg(message, "me");
+            document.getElementById("messageInput").value = ""
             return true;
 
         } catch (error) {
@@ -1005,6 +1010,10 @@ function app() {
                 throw new Error(err.error || 'Send failed');
             }
             const data = await response.json();
+            sendOk = true
+            let message = document.getElementById("messageInput").value;
+            showMsg(message, "me");
+            document.getElementById("messageInput").value = ""
             return true;
         } catch (error) {
             console.error(error);
@@ -1048,7 +1057,6 @@ function app() {
             return;
         }
         try {
-            showMsg(message, "me");
             // 1. Generate the next random AES key that will be derived (secretCode2 + cumulativeNonce) and used after this message
             const nextAesKey = await crypto.subtle.generateKey(
                 { name: "AES-GCM", length: 256 },
@@ -1085,20 +1093,23 @@ function app() {
             } else {
                 await joinerSendsMessage(base64EncryptedMsg);
             }
-            // 8. Save the derivation nonce for the next key derivation
-            if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {
-                // first message
-                cumulativeNonce = derivationNonce
-            } else {
-                // others messages
-                const combined = new Uint8Array(32);
-                combined.set(cumulativeNonce, 0);
-                combined.set(derivationNonce, 16);
-                const hash = await crypto.subtle.digest("SHA-256", combined);
-                cumulativeNonce = hash.slice(0, 16);  // always 16 byte
+            // 8. Save the derivation nonce for the next key derivation if the server saved the msg
+            if (sendOk) {
+                sendOk = false
+                if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {
+                    // first message
+                    cumulativeNonce = derivationNonce
+                } else {
+                    // others messages
+                    const combined = new Uint8Array(32);
+                    combined.set(cumulativeNonce, 0);
+                    combined.set(derivationNonce, 16);
+                    const hash = await crypto.subtle.digest("SHA-256", combined);
+                    cumulativeNonce = hash.slice(0, 16);  // always 16 byte
+                }
+                // 9. Derive the new current key from the nextAesKey (using secretCode2 + derivationNonce from previous msg)
+                currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
             }
-            // 9. Derive the new current key from the nextAesKey (using secretCode2 + derivationNonce from previous msg)
-            currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
         } catch (error) {
             console.error("Encryption failed:", error);
             alert("Failed to send message");
