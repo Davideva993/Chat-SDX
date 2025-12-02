@@ -848,7 +848,7 @@ function app() {
         const myHash = new Uint8Array(myHashBuffer)
         const a = receivedSecretHash;
         const b = myHash;
-        console.log(a,b)
+        console.log(a, b)
         if (a.length === b.length && a.toString() === b.toString()) {
             stepsAnimation("chat", "joiner", "completed")
             timer("joiner", "stop")
@@ -1156,10 +1156,14 @@ function app() {
         li.textContent = message;
         if (user == "partner") {
             li.style.color = "red"
+            li.style.textShadow = "1px 1px white"
+            li.style.fontSize = "larger"
             ul.appendChild(li);
         }
         else if (user == "me") {
-            li.style.color = "blue"
+            li.style.color = "green"
+            li.style.textShadow = "1px 1px white"
+            li.style.fontSize = "larger"
             ul.appendChild(li);
         }
     }

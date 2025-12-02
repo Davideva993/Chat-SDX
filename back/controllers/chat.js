@@ -1,7 +1,7 @@
 import { Room, Message } from '../models/db.js';
 import { Op } from 'sequelize';
 const timers = {};
-const autoDeleteTimer = 6 * 60 * 60  //6h
+const autoDeleteTimer = 6 * 60 * 60 *1000  //6h
 // Controller for chat routes
 
 function inactivityTimerManager(roomName) {

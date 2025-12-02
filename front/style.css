@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap');
+
 #nameAndSecretCodeSection {
     display: flex;
     flex-direction: column;
@@ -6,10 +8,16 @@
 #nameAndSecretCodeSection>span {
     display: flex;
     justify-content: space-between;
+    margin-bottom: 10px;
 }
 
 #nameAndSecretCodeSection input {
     width: 60%;
+}
+
+button {
+    min-width: 30%;
+
 }
 
 body {
@@ -17,7 +25,12 @@ body {
     height: 100vh;
     flex-direction: column;
     margin: 0 10px;
+    background: linear-gradient(to bottom, #484866, #111122);
     justify-content: space-between;
+    color: grey;
+    font-family: "Roboto Condensed", sans-serif;
+    font-optical-sizing: auto;
+    font-style: normal;
 }
 
 .drawingSec {
@@ -26,8 +39,8 @@ body {
 }
 
 .stepContainer img {
-    height: 50px;
-    width: 50px;
+    height: 30px;
+    width: 30px;
 }
 
 .stepContainer span {
@@ -38,12 +51,17 @@ body {
     border: solid 6px transparent
 }
 
+h1 {
+    text-align: center;
+}
+
 .destroyChatImgContainer {
     justify-content: flex-start !important;
     align-items: flex-start !important;
 }
 
-#destroyChatHostP,#destroyChatJoinerP {
+#destroyChatHostP,
+#destroyChatJoinerP {
     color: red;
     font-weight: 600;
     font-size: xx-large;
@@ -91,6 +109,6 @@ b {
 }
 
 
-#sendSection{
+#sendSection {
     display: flex
 }

@@ -55,12 +55,14 @@
             <section class="dynamic landingPage">
                 <h2>Key Principles</h2>
                 <ul>
-                    <li>Ask users only for data strictly required for functionality</li>
-                    <li>Connections run through the Tor network</li>
-                    <li>All messages are end-to-end encrypted; the server never sees the keys</li>
-                    <li>The server is assumed to be potentially compromised</li>
-                    <li>All client-side data is stored ephemerally — cleared on page reload</li>
-                    <li>A "Destroy Chat" button instantly wipes the session and reloads the page</li>
+                    <li>No unnecessary user data (phone, email, account...)</li>
+                    <li>Sensitive data and keys never leaves the browser in cleartext</li>
+                    <li>Security over comfort: ex, session aborts instantly if compromise is suspected</li>
+                    <li>Server stores only the last 3 encrypted messages, temporarily</li>
+                    <li>No cookies or persistent storage – reload clears the browser, one button deletes the room</li>
+                    <li>Every message encrypted with a unique key, computed locally, and unknown to the server</li>
+                    <li>Knowing one message key is not sufficient to derive previous or next keys</li>
+                    <li>Connections routed through the Tor network (enforced on the hosted instance)</li>
                 </ul>
             </section>
             <section class="dynamic hostPage">
@@ -163,9 +165,7 @@
             </span>
     </main>
     <footer>
-        &copy; 2025 My Website. All rights reserved.<br>
-        <a href="/terms-and-conditions">Terms & Conditions</a> |
-        <a href="/privacy-policy">Privacy Policy</a>
+        © 2025 Chat SDX • <a href="https://github.com/Davideva993/Chat-SDX">AGPL-3.0 source</a>
     </footer>
 
     <script src="script.js"></script>
