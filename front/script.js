@@ -5,12 +5,13 @@
 2)The host asks each 1,5s if the other user (joiner) joined the room.
 3)The joiner generates the defKey (AES), joins the room (with roomName) and receives the joinerToken.
 4)The host, knowing the joiner is present, generates a self-destruct timer and sends the initKey encrypted by the tempKey and the nonce to the server.
-5)The joiner asks for the nonce and encrypted initKey. Then he generates the tempKey (secretCode1, nonce and Argon) and uses it to decrypt the initKey
-6) The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server.
-7) The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is removed, and the clean defKey is imported. The self-destruct timer is cleared.
+5)The joiner asks for the nonce and encrypted initKey. Then he generates the tempKey (secretCode1, nonce and Argon) and uses it to decrypt the initKey.
+6) The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server. The first currentKey is the defKey derived with this nonce and the secretCode2.
+7) The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is used with the secretCode2 to derivate the first currentKey, and the clean defKey is imported. The self-destruct timer is cleared.
 8)The host Encrypts the hash of secretCode2 using the defKey and sends it to the server.
 9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
 ----the chat starts---
+-The first message is encrypted with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
 10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey (defKey for the first time) and sends it. Then updates cumulativeNonce (first message: =derivationNonce; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: =derivationNonce; later: SHA-256(old||new)[0:15]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 */
@@ -617,7 +618,7 @@ function app() {
     }
 
 
-    // 6) The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server.
+    //6) The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server. The first currentKey is the defKey derived with this nonce and the secretCode2.
     async function joinerEncryptsAndSendsDefKey() {
         try {
             stepsAnimation("defKey", "joiner", "completed");
@@ -625,6 +626,8 @@ function app() {
             const defKeyRaw = await crypto.subtle.exportKey('raw', defKey);
             // Generate a secure random nonce (16 bytes = 128 bits)
             const nonce = crypto.getRandomValues(new Uint8Array(16));
+            cumulativeNonce = nonce //the first message: cumulativeNonce = nonce sent with deFkey
+            await deriveNextCurrentDefKey(new Uint8Array(defKeyRaw)) //derive the key that encrypts the 1st message with cumulativeNonce and SC2
             // Concatenate defKey + nonce
             const defKeyWithNonce = new Uint8Array(defKeyRaw.byteLength + nonce.byteLength);
             defKeyWithNonce.set(new Uint8Array(defKeyRaw), 0);
@@ -658,7 +661,7 @@ function app() {
 
 
 
-    /* 7) The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is removed, and the clean defKey is imported. The self-destruct timer is cleared.*/
+    //7) The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is used with the secretCode2 to derivate the first currentKey, and the clean defKey is imported. The self-destruct timer is cleared.
     function hostAsksForEncryptedDefKey() {
         fetch('http://localhost:3001/api/hostAsksForEncryptedDefKey', {
             method: 'POST',
@@ -682,8 +685,10 @@ function app() {
                 return response.json();
             })
             .then(data => {
-                hostDecryptsDefKey(data.encryptedDefKey);
-                showBorderEffect("host", "defKeyImgContainer");
+                if (data?.encryptedDefKey) {
+                    hostDecryptsDefKey(data.encryptedDefKey);
+                    showBorderEffect("host", "defKeyImgContainer");
+                }
             })
             .catch(error => {
                 console.error('Error requesting defKey:', error);
@@ -711,6 +716,7 @@ function app() {
                 throw new Error('Decrypted payload too short – missing nonce');
             }
             const defKeyRaw = fullArray.slice(0, -NONCE_LENGTH);
+            cumulativeNonce = fullArray.slice(-NONCE_LENGTH); //the first message: cumulativeNonce = nonce sent with deFkey
             defKey = await crypto.subtle.importKey(
                 'raw',
                 defKeyRaw,
@@ -718,6 +724,9 @@ function app() {
                 false,
                 ['encrypt', 'decrypt']
             );
+            await deriveNextCurrentDefKey(new Uint8Array(defKeyRaw)) //the first message is encrypted by defKey derived using SC2 and cumulativeNonce
+
+
             timer("host", "stop");
             hostEncryptsTheSecret(defKey);
             stepsAnimation("validated", "host", "completed");
@@ -755,6 +764,7 @@ function app() {
             const base64EncryptedHash = btoa(String.fromCharCode(...result));
             showBorderEffect("host", "lockStatusImgContainer")
             hostSendsEncryptedSecret(base64EncryptedHash);
+            defKey = null
         } catch (error) {
             stepsAnimation("validated", "host", "failed")
             console.error("Errore crittografia secret:", error);
@@ -763,8 +773,6 @@ function app() {
 
 
     function hostSendsEncryptedSecret(base64EncryptedHash) {
-        currentDefKey = defKey;
-        defKey = null
         fetch('http://localhost:3001/api/hostSendsEncryptedSecret', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -849,12 +857,10 @@ function app() {
         const myHash = new Uint8Array(myHashBuffer)
         const a = receivedSecretHash;
         const b = myHash;
-        console.log(a, b)
         if (a.length === b.length && a.toString() === b.toString()) {
             stepsAnimation("chat", "joiner", "completed")
             timer("joiner", "stop")
             alert("host is certified!")
-            currentDefKey = defKey
             defKey = null
             setTimeout(() => {
                 updateDynamicElements("chatPage")
@@ -1105,7 +1111,7 @@ function app() {
                     combined.set(cumulativeNonce, 0);
                     combined.set(derivationNonce, 16);
                     const hash = await crypto.subtle.digest("SHA-256", combined);
-                    cumulativeNonce = hash.slice(0, 16);  // always 16 byte
+                    cumulativeNonce = new Uint8Array(hash).slice(0, 16);  // always 16 byte
                 }
                 // 9. Derive the new current key from the nextAesKey (using secretCode2 + derivationNonce from previous msg)
                 currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
@@ -1151,7 +1157,7 @@ function app() {
                 combined.set(cumulativeNonce, 0);
                 combined.set(derivationNonce, 16);
                 const hash = await crypto.subtle.digest("SHA-256", combined);
-                cumulativeNonce = hash.slice(0, 16);  // always 16 byte
+                cumulativeNonce = new Uint8Array(hash).slice(0, 16);  // always 16 byte
             }
             // 6. Derive the next currentDefKey using the new cumulativeNonce
             currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);

@@ -4,11 +4,13 @@
 Experimental, minimalist end-to-end encrypted chat.
 
 Requires one **temporarily secure external channel** (voice call, QR, meeting, another app etc.) just to exchange two secret words and start the session. 
-The countdown and user verification systems are designed to prevent the chat from starting if any attempt at compromise is detected.
+The countdown and user verification systems are designed to prevent the chat from starting if any attempt at compromise is detected. 
 The system prioritizes anonymity and only collects information necessary for operation, ensuring that sensitive data does not pass through the server in plain text.
 
-Once launched, every message uses a **unique key** derived with an hash that incorporates the derivationNonces encrypted in all previous messages. 
-
+Every message uses a **unique key** derived via Argon2id using:
+- a fresh random AES key (sent encrypted in the current message)
+- a salt composed of **secret word 2 and the hash-chain of the present and all previous random derivation nonces**
+* The first message is encrypted with the defKey derived via Argon2id using secret word 2 and the nonce of EIK (step 6 or 7)
 
 
 ## Security
@@ -31,19 +33,22 @@ Once launched, every message uses a **unique key** derived with an hash that inc
    -Both participants can delete the room at any time
 
    ## Frontend
+
 -The steps:
 1)The host generates a nonce, the tempKey (using secretCode1 and Argon), the initKey (public RSA-OAEP) then he registers a room with the roomName and receives the hostToken.
 2)The host asks each 1,5s if the other user (joiner) joined the room.
 3)The joiner generates the defKey (AES), joins the room (with roomName) and receives the joinerToken.
 4)The host, knowing the joiner is present, generates a self-destruct timer and sends the initKey encrypted by the tempKey and the nonce to the server.
-5)The joiner asks for the nonce and encrypted initKey. Then he generates the tempKey (secretCode1, nonce and Argon) and uses it to decrypt the initKey
-6)The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server.
-7)The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is removed, and the clean defKey is imported. The self-destruct timer is cleared.
+5)The joiner asks for the nonce and encrypted initKey. Then he generates the tempKey (secretCode1, nonce and Argon) and uses it to decrypt the initKey.
+6)The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server. The first currentKey is the defKey derived with this nonce and the secretCode2.
+7)The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is used with the secretCode2 to derivate the first currentKey, and the clean defKey is imported. The self-destruct timer is cleared.
 8)The host Encrypts the hash of secretCode2 using the defKey and sends it to the server.
 9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
 ----the chat starts---
+-The first message is encrypted with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
 10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey (defKey for the first time) and sends it. Then updates cumulativeNonce (first message: =derivationNonce; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: =derivationNonce; later: SHA-256(old||new)[0:15]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+
  
 
 
