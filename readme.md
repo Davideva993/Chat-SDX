@@ -1,11 +1,12 @@
 
 # Chat SDX
 
-Experimental, minimalist end-to-end encrypted chat.
+An experimental, minimalist end-to-end encrypted chat that doesn't trust the server backend, not even for the key exchange.
 
 Requires one **temporarily secure external channel** (voice call, QR, meeting, another app etc.) just to exchange two secret words and start the session. 
 The countdown and user verification systems are designed to prevent the chat from starting if any attempt at compromise is detected. 
-The system prioritizes anonymity and only collects information necessary for operation, ensuring that sensitive data does not pass through the server in plain text.
+The system prioritizes anonymity and only collects information necessary for operation, ensuring that sensitive data does not pass through the server in plain text. 
+Not recommended for everyday use. Security should come before convenience.
 
 Every message uses a **unique key** derived via Argon2id using:
 - a fresh random AES key (sent encrypted in the current message)
@@ -21,7 +22,7 @@ Every message uses a **unique key** derived via Argon2id using:
 
 2. **Chat starts safely if**:
    - EIK is stored and bruteforced later
-   - Secure channel is compromised later
+   - The secure channel is compromised after the key exchange
 
 3. **Other**:
    -Only local variables to store information client-side.
@@ -33,9 +34,8 @@ Every message uses a **unique key** derived via Argon2id using:
    -Both participants can delete the room at any time
 
    ## Frontend
-
 -The steps:
-1)The host generates a nonce, the tempKey (using secretCode1 and Argon), the initKey (public RSA-OAEP) then he registers a room with the roomName and receives the hostToken.
+1)The host generates a nonce, the tempKey (using secretCode1 and Argon), the initKey (public RSA-OAEP) then he registers a room and receives the hostToken and the roomName.
 2)The host asks each 1,5s if the other user (joiner) joined the room.
 3)The joiner generates the defKey (AES), joins the room (with roomName) and receives the joinerToken.
 4)The host, knowing the joiner is present, generates a self-destruct timer and sends the initKey encrypted by the tempKey and the nonce to the server.
@@ -45,30 +45,31 @@ Every message uses a **unique key** derived via Argon2id using:
 8)The host Encrypts the hash of secretCode2 using the defKey and sends it to the server.
 9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
 ----the chat starts---
--The first message is encrypted with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
-10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey (defKey for the first time) and sends it. Then updates cumulativeNonce (first message: =derivationNonce; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
-11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: =derivationNonce; later: SHA-256(old||new)[0:15]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+-The first message is encrypted (and decrypted) with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
+10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (SHA-256(old||new)[0:15]) and derives the next currentDefKey = the sent AES derived with secretCode2 + cumulativeNonce.
+11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (SHA-256(old||new)[0:15]), then derives the next currentDefKey = the received AES derived with secretCode2 + cumulativeNonce.
 
  
 
 
    ## Backend
  /*-----NAME-------------------------------------------INPUT------------------------------------OUTPUT--------
-  STEP 1: hostRegistersRoom()                         roomName                                 hostToken
+  STEP 1: hostRegistersRoom()                         ------                                   roomName, hostToken
   STEP 2: joinerFindsRoom()                           roomName                                 joinerToken 
   STEP 3: hostAsksForJoiner()                         roomName, hostToken                      ------
   STEP 4: hostSendsEncryptedInitKeyAndNonce()         roomName, hostToken en. initKey, nonce   ------
   STEP 5: joinerAsksForEncryptedInitKeyAndNonce()     roomName, joinerToken                    en. initKey
   STEP 6: joinerSendsEncryptedDefKey()                roomName, joinerToken, en. defKey        ------
-  STEP 7: hostAsksForEncryptedDefKey()                roomName, hostToken                      en. defKey
+  STEP 7: hostAsksForEncryptedDefKey()                roomName, hostToken                      en. defKey and nonce***
   STEP 8: hostSendsEncryptedSecret()                  roomName, hostToken, en. hashed secret   -------
   STEP 9: joinerAsksForEncryptedSecret()              roomName, joinerToken                    en. hashed secret
   -------------------------------------------CHAT STARTS----------------------------------------------------
-  Message structure: currentDefKey { message || nextAesKey || derivationNonce(16) } 
+  Message structure: currentDefKey encrypts: { message || nextAesKey || derivationNonce(16) } 
 
-
+  *derivationNonce= fresh nonce generated by the sender for each message, always encrypted with currentDefKey when leaves the browser
   *cumulativeNonce= hash-chain of all previous derivationNonces (always 16 B)
   *currentDefKey= Argon2id(nextAesKey, secretCode2 + cumulativeNonce)
+  ***The first message is encrypted with defkey derived with this nonce and secretCode2
 
 
 

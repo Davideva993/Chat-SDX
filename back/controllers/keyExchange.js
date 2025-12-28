@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Room } from '../models/db.js';
 const keyExchangeCtrl = {
   /*-----NAME-------------------------------------------INPUT------------------------------------OUTPUT--------
-  STEP 1: hostRegistersRoom()                         roomName                                 hostToken
+  STEP 1: hostRegistersRoom()                         ------                                   roomName, hostToken
   STEP 2: joinerFindsRoom()                           roomName                                 joinerToken 
   STEP 3: hostAsksForJoiner()                         roomName, hostToken                      ------
   STEP 4: hostSendsEncryptedInitKeyAndNonce()         roomName, hostToken en. initKey, nonce   ------
@@ -14,27 +14,29 @@ const keyExchangeCtrl = {
   -------------------------------------------CHAT STARTS----------------------------------------------------
   */
   // Step 1 (Host): Register room with room name. Gets the hostToken 
-  hostRegistersRoom: async (req, res) => {
-    const roomName = req.body.roomName;
-    if (!roomName) {
-      return res.status(400).json({ error: 'Missing roomName' });
+ hostRegistersRoom: async (req, res) => {
+  const characters = 'abcdefghijklmnopqrstuvwxyz0123456789'; // valid characters for roomName
+  let roomName;
+  let existingRoom;
+  do {
+    roomName = '';
+    for (let i = 0; i < 5; i++) {
+      const randomIndex = Math.floor(Math.random() * characters.length);
+      roomName += characters[randomIndex];
     }
-    try {
-      const existingRoom = await Room.findOne({ where: { roomName } });
-      if (existingRoom) {
-        return res.status(400).json({ error: 'Room already exists' });
-      }
-      const hostToken = uuidv4();
-      await Room.create({
-        roomName,
-        hostToken,
-      });
-      return res.status(200).json({ hostToken });
-    } catch (error) {
-      return res.status(500).json({ error: 'Server error' });
-    }
-  },
-
+    existingRoom = await Room.findOne({ where: { roomName } });
+  } while (existingRoom);
+  try {
+    const hostToken = uuidv4();
+    await Room.create({
+      roomName,
+      hostToken,
+    });
+    return res.status(200).json({ hostToken, roomName });
+  } catch (error) {
+    return res.status(500).json({ error: 'Server error' });
+  }
+},
 
 
   // Step 2 (Joiner): Find the room (roomName) and get the joinerToken
@@ -51,11 +53,11 @@ const keyExchangeCtrl = {
       const joinerToken = uuidv4();
       await room.update({ joinerToken });
       setTimeout(() => {
-      Room.update(
-        { nonce: null, encryptedInitKey: null, encryptedDefKey: null, encryptedSecret: null },
-        { where: { roomName } }
-      ).catch(() => {})
-    }, 12_000)
+        Room.update(
+          { nonce: null, encryptedInitKey: null, encryptedDefKey: null, encryptedSecret: null },
+          { where: { roomName } }
+        ).catch(() => { })
+      }, 12_000)
       res.status(200).json({
         joinerToken,
       });

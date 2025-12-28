@@ -1,7 +1,7 @@
 
 /*
 -The steps:
-1)The host generates a nonce, the tempKey (using secretCode1 and Argon), the initKey (public RSA-OAEP) then he registers a room with the roomName and receives the hostToken.
+1)The host generates a nonce, the tempKey (using secretCode1 and Argon), the initKey (public RSA-OAEP) then he registers a room and receives the hostToken and the roomName.
 2)The host asks each 1,5s if the other user (joiner) joined the room.
 3)The joiner generates the defKey (AES), joins the room (with roomName) and receives the joinerToken.
 4)The host, knowing the joiner is present, generates a self-destruct timer and sends the initKey encrypted by the tempKey and the nonce to the server.
@@ -12,8 +12,8 @@
 9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
 ----the chat starts---
 -The first message is encrypted with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
-10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey (defKey for the first time) and sends it. Then updates cumulativeNonce (first message: =derivationNonce; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
-11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: =derivationNonce; later: SHA-256(old||new)[0:15]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 */
 function app() {
     'use strict'
@@ -49,15 +49,31 @@ function app() {
 
     //--------------------------------------Design functions
     function updateDynamicElements(classToShow) {
-        if (classToShow == "chatPage") {
-            document.getElementById("centralSection").style.height = "60vh"
-        }
+
         for (let i = 0; i < dynamicElements.length; i++) {
             if (!dynamicElements[i].classList.contains(classToShow)) {
                 dynamicElements[i].style.display = "none";
             } else {
                 dynamicElements[i].style.display = "";
             }
+        }
+        const label = document.querySelector('label[for="roomNameInput"]')
+        if (classToShow == "chatPage") {
+            document.getElementById("centralSection").style.height = "60vh"
+        }
+        else if (classToShow == "hostPage") {
+            document.getElementById("roomNameInput").readOnly = true;
+            document.getElementById("roomNameInput").style.background = "grey";
+            document.getElementById("roomNameInput").style.outline = "none";
+            document.getElementById("roomNameInput").value = "";
+            label.textContent = "Room name (will be auto-filled)"
+        }
+        else if (classToShow == "joinPage") {
+            document.getElementById("roomNameInput").readOnly = false;
+            document.getElementById("roomNameInput").style.background = "white";
+            document.getElementById("roomNameInput").style.outline = "initial";
+
+            label.textContent = "Room name (please ask the other user)"
         }
     }
 
@@ -239,29 +255,14 @@ function app() {
 
     //1)The host generates a nonce, the tempKey (using secretCode1 and Argon), the initKey (public RSA-OAEP) then he registers a room with the roomName and receives the hostToken.
     function hostSetupAndRegisterARoom() {
-        if (roomNameInput.value.trim().length == 0) {
-            alert("Missing room name")
-            return
-        }
-        else if (roomSecretCodeInput1.value.trim().length == 0) {
-            alert("Missing room SecretCode1")
-            return
-        }
-        else if (roomSecretCodeInput2.value.trim().length == 0) {
-            alert("Missing room SecretCode2")
-            return
-        }
-        else {
-            roomName = roomNameInput.value
-            document.getElementById("roomNameH2").textContent = roomName
-            secretCode1 = roomSecretCodeInput1.value
-            secretCode2 = roomSecretCodeInput2.value
-            stepsAnimation("tempKey", "host", "completed")
-            hostGeneratesNonce()
-            hostGeneratesTempKey()
-            hostGeneratesInitKey()
-            hostRegistersRoom()
-        }
+        secretCode1 = roomSecretCodeInput1.value
+        secretCode2 = roomSecretCodeInput2.value
+        stepsAnimation("tempKey", "host", "completed")
+        hostGeneratesNonce()
+        hostGeneratesTempKey()
+        hostGeneratesInitKey()
+        hostRegistersRoom()
+
     }
 
 
@@ -323,13 +324,10 @@ function app() {
     }
 
     function hostRegistersRoom() {
-        const payload = {
-            roomName,
-        };
+
         fetch('http://localhost:3001/api/hostRegistersRoom', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
         })
             .then(res => {
                 if (res.status === 400) {
@@ -340,6 +338,8 @@ function app() {
             })
             .then(data => {
                 hostToken = data.hostToken;
+                roomName = data.roomName;
+                document.getElementById("roomNameInput").value = roomName
                 userName = "host";
                 hostAsksForJoiner();
             })
