@@ -6,7 +6,7 @@ An experimental, minimalist end-to-end encrypted chat that doesn't trust the ser
 Requires one **temporarily secure external channel** (voice call, QR, meeting, another app etc.) just to exchange two secret words and start the session. 
 The countdown and user verification systems are designed to prevent the chat from starting if any attempt at compromise is detected. 
 The system prioritizes anonymity and only collects information necessary for operation, ensuring that sensitive data does not pass through the server in plain text. 
-Not recommended for everyday use. Security should come before convenience.
+Not recommended for everyday use. Security before convenience.
 
 Every message uses a **unique key** derived via Argon2id using:
 - a fresh random AES key (sent encrypted in the current message)
@@ -16,9 +16,9 @@ Every message uses a **unique key** derived via Argon2id using:
 
 ## Security
 1. **Chat will not start if**:
-   - EIK is bruteforced (1)
-   - EIK is replaced (2)
-   - EDK is replaced (3)
+   - EIK was bruteforced (1)
+   - EIK was replaced (2)
+   - EDK was replaced (3)
 
 2. **Chat starts safely if**:
    - EIK is stored and bruteforced later
@@ -32,6 +32,7 @@ Every message uses a **unique key** derived via Argon2id using:
    -The room auto-deletes after 6 hours if no one sends a message
    -The fields `nonce`, `encryptedInitKey`, `encryptedDefKey`, and `encryptedSecret` are automatically deleted 12 seconds after the joiner enters the room
    -Both participants can delete the room at any time
+   -The cumulativeNonce (hash-chain of previous derivationNonces) is computed independently by both users for each new message, it never leaves the browser and ensures key synchronization
 
    ## Frontend
 -The steps:
