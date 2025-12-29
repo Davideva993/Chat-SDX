@@ -73,7 +73,7 @@ const Message = sequelize.define('Message', {
 });
 
 export const initDb = async () => {
-  await sequelize.sync({ alter: true });
+  await sequelize.sync({ alter: false });
   console.log("DB sync completed");
 };
 export { sequelize, Room, Message };
