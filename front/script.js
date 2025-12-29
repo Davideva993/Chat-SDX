@@ -190,6 +190,11 @@ function app() {
 
 
     //--------------------------------Functional functions (keyExchange)
+    function restartFront() {
+        alert("The chat cannot start. The room name is wrong, the room was removed for security reasons, or a chat is already active. Please try again and inform your partner.");
+        location.reload()
+    }
+
     function timer(user, action) {
         if (action == "start" && countdownInterval || action == "stop" && countdownInterval == null) {
             return
@@ -324,7 +329,10 @@ function app() {
     }
 
     function hostRegistersRoom() {
-
+        if (roomSecretCodeInput1.value.length < 6 || roomSecretCodeInput2.value.length < 12) {
+            alert("Secret code not valid")
+            return
+        }
         fetch('http://localhost:3001/api/hostRegistersRoom', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -340,6 +348,7 @@ function app() {
                 hostToken = data.hostToken;
                 roomName = data.roomName;
                 document.getElementById("roomNameInput").value = roomName
+                document.getElementById("roomNameH2").textContent = roomName
                 userName = "host";
                 hostAsksForJoiner();
             })
@@ -360,7 +369,12 @@ function app() {
                 hostToken: hostToken
             })
         })
-            .then(response => {
+            .then(async response => {
+                const data = await response.json()
+                if (data.restartFront === true) {
+                    restartFront()
+                    return
+                }
                 if (response.status === 404) {
                     setTimeout(() => {
                         hostAsksForJoiner();
@@ -370,9 +384,9 @@ function app() {
                 if (!response.ok) {
                     return;
                 }
-                return response.json().then(data => {
-                    hostEncryptsInitKey();
-                });
+
+                hostEncryptsInitKey();
+
             })
             .catch(error => console.error('Errore:', error));
     }
@@ -432,19 +446,26 @@ function app() {
                 roomName: roomName
             })
         })
-            .then(response => {
+            .then(async response => {
+                const data = await response.json();
+                if (data.restartFront === true) {
+                    restartFront()
+                    return
+                }
                 if (response.status === 404) {
                     alert("Room not found");
                     throw new Error("Room not found");
                 }
-                return response.json();
+                return data
             })
             .then(data => {
+                if (!data) return
                 joinerToken = data.joinerToken;
                 userName = "joiner";
                 joinerAsksForEncryptedInitKeyAndNonce();
             })
-            .catch(error => console.error(error));
+            .catch(error => console.error(error)
+            );
     }
 
     function base64NonceIntoUint8Array(base64Nonce) {
@@ -558,29 +579,33 @@ function app() {
                 joinerToken: joinerToken
             })
         })
-            .then(response => {
-                return response.json().then(data => {
-                    if (response.status === 404) {//initKey not ready
-                        setTimeout(() => {
-                            joinerAsksForEncryptedInitKeyAndNonce()
-                        }, 1500);
-                        return;
-                    }
-                    if (!response.ok) {
-                        return;
-                    }
-                    async function handleData(data) {
-                        base64NonceIntoUint8Array(data.nonce); // the host will use the Uint8Array nonce to make his tempKey
-                        await joinerGeneratesTempKey();
-                        await joinerDecryptsInitKey(data.encryptedInitKey)
-                        showBorderEffect("joiner", "initKeyImgContainer")
-                    }
-                    handleData(data)
-                });
+            .then(async response => {
+                const data = await response.json();
+                if (data.restartFront === true) {
+                    restartFront()
+                    return
+                }
+                if (response.status === 404) {//initKey not ready
+                    setTimeout(() => {
+                        joinerAsksForEncryptedInitKeyAndNonce()
+                    }, 1500);
+                    return;
+                }
+                if (!response.ok) {
+                    return;
+                }
+                base64NonceIntoUint8Array(data.nonce); // the host will use the Uint8Array nonce to make his tempKey
+                await joinerGeneratesTempKey();
+                await joinerDecryptsInitKey(data.encryptedInitKey)
+                showBorderEffect("joiner", "initKeyImgContainer")
             })
             .catch(error => {
                 console.error('Errore:', error)
                 stepsAnimation("initKey", "joiner", "failed")
+                alert("SecretCode1 is right?")
+                setTimeout(() => {
+                    location.reload()
+                }, 5000);
             });
     }
 
@@ -650,7 +675,11 @@ function app() {
                     joinerToken,
                     encryptedDefKey: base64EncryptedDefKey,
                 })
-            });
+            })
+                .then(async response => {
+                    const data = await response.json();
+                    if (data.restartFront === true) { restartFront() }
+                })
             timer("joiner", "start");
             joinerAsksForEncryptedSecret();
         } catch (error) {
@@ -671,18 +700,25 @@ function app() {
                 hostToken: hostToken
             })
         })
-            .then(response => {
+            .then(async response => {
+                const data = await response.json()
+                if (data.restartFront === true) {
+                    restartFront()
+                    return
+                }
+
                 if (response.status === 404) {
-                    return response.json().then(data => {
-                        console.log(data.error); // "defKey not ready"
-                        setTimeout(hostAsksForEncryptedDefKey, 1500);
-                    });
+                    console.log(data.error); // "defKey not ready"
+                    setTimeout(() => {
+                        hostAsksForEncryptedDefKey()
+                    }, 1500)
+                    return
                 }
                 if (!response.ok) {
                     stepsAnimation("defKey", "host", "failed");
                     throw new Error(`HTTP ${response.status}`);
                 }
-                return response.json();
+                return data;
             })
             .then(data => {
                 if (data?.encryptedDefKey) {
@@ -784,6 +820,8 @@ function app() {
         })
             .then(response => response.json())
             .then(data => {
+                if (data.restartFront === true) { restartFront() }
+
                 stepsAnimation("chat", "host", "completed")
                 setTimeout(() => {
                     updateDynamicElements("chatPage")
@@ -818,6 +856,8 @@ function app() {
                 return;
             }
             const data = await response.json();
+            if (data.restartFront === true) { restartFront() }
+
             if (!data.encryptedSecret) {
                 throw new Error("Encrypted secret not found in server response");
             }
@@ -1198,7 +1238,7 @@ function app() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token, roomName })
             });
-            if (res.status == "403") {
+            if (res.status === 403 || res.status === 200) {
                 alert("This chat is lost or deleted.")
                 location.reload()
                 return

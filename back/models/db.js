@@ -3,7 +3,7 @@ import { Sequelize, DataTypes } from "sequelize";
 const sequelize = new Sequelize({
   dialect: "sqlite",
   storage: "./database.sqlite",
-  logging: false,          
+  logging: false,
 });
 
 
@@ -38,6 +38,17 @@ const Room = sequelize.define('Room', {
     type: DataTypes.STRING,
     allowNull: true,
   },
+  ongoingChat: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  },
+  failedAuth: {
+  type: DataTypes.INTEGER,
+  allowNull: false,
+  defaultValue: 0
+}
+
 });
 
 // Define Message model
@@ -58,10 +69,11 @@ const Message = sequelize.define('Message', {
     type: DataTypes.NUMBER,
     allowNull: false,
   },
+
 });
 
 export const initDb = async () => {
-  await sequelize.sync({ alter: false });
+  await sequelize.sync({ alter: true });
   console.log("DB sync completed");
 };
 export { sequelize, Room, Message };

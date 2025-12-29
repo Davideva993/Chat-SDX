@@ -11,7 +11,7 @@ Not recommended for everyday use. Security before convenience.
 Every message uses a **unique key** derived via Argon2id using:
 - a fresh random AES key (sent encrypted in the current message)
 - a salt composed of **secret word 2 and the hash-chain of the present and all previous random derivation nonces**
-* The first message is encrypted with the defKey derived via Argon2id using secret word 2 and the nonce of EIK (step 6 or 7)
+* The first message is encrypted with the defKey derived via Argon2id using secret word 2 and the nonce from EIK (step 6 or 7)
 
 
 ## Security
@@ -19,10 +19,12 @@ Every message uses a **unique key** derived via Argon2id using:
    - EIK was bruteforced (1)
    - EIK was replaced (2)
    - EDK was replaced (3)
+   - Someone sends a wrong token (host or joiner) during the key exchange phase (potential active attack)
 
 2. **Chat starts safely if**:
    - EIK is stored and bruteforced later
    - The secure channel is compromised after the key exchange
+   - Someone sends a wrong token (host or joiner) while the chat is already ongoing (up to 3 attempts; then the room is destroyed)
 
 3. **Other**:
    -Only local variables to store information client-side.
@@ -33,6 +35,7 @@ Every message uses a **unique key** derived via Argon2id using:
    -The fields `nonce`, `encryptedInitKey`, `encryptedDefKey`, and `encryptedSecret` are automatically deleted 12 seconds after the joiner enters the room
    -Both participants can delete the room at any time
    -The cumulativeNonce (hash-chain of previous derivationNonces) is computed independently by both users for each new message, it never leaves the browser and ensures key synchronization
+   -Key exchange endpoints are automatically disabled once the chat enters the chat phase.
 
    ## Frontend
 -The steps:
@@ -42,12 +45,12 @@ Every message uses a **unique key** derived via Argon2id using:
 4)The host, knowing the joiner is present, generates a self-destruct timer and sends the initKey encrypted by the tempKey and the nonce to the server.
 5)The joiner asks for the nonce and encrypted initKey. Then he generates the tempKey (secretCode1, nonce and Argon) and uses it to decrypt the initKey.
 6)The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server. The first currentKey is the defKey derived with this nonce and the secretCode2.
-7)The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is used with the secretCode2 to derivate the first currentKey, and the clean defKey is imported. The self-destruct timer is cleared.
-8)The host Encrypts the hash of secretCode2 using the defKey and sends it to the server.
-9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
+7)The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is used with the secretCode2 to derive the first currentKey, and the clean defKey is imported. The self-destruct timer is cleared.
+8)The host encrypts the hash of secretCode2 using the defKey and sends it to the server.
+9)The joiner asks for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the process is validated and the joiner timer cleared.
 ----the chat starts---
 -The first message is encrypted (and decrypted) with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
-10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (SHA-256(old||new)[0:15]) and derives the next currentDefKey = the sent AES derived with secretCode2 + cumulativeNonce.
+10)The sender encrypts message + a fresh AES key + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (SHA-256(old||new)[0:15]) and derives the next currentDefKey = the sent AES derived with secretCode2 + cumulativeNonce.
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (SHA-256(old||new)[0:15]), then derives the next currentDefKey = the received AES derived with secretCode2 + cumulativeNonce.
 
  
@@ -65,12 +68,12 @@ Every message uses a **unique key** derived via Argon2id using:
   STEP 8: hostSendsEncryptedSecret()                  roomName, hostToken, en. hashed secret   -------
   STEP 9: joinerAsksForEncryptedSecret()              roomName, joinerToken                    en. hashed secret
   -------------------------------------------CHAT STARTS----------------------------------------------------
-  Message structure: currentDefKey encrypts: { message || nextAesKey || derivationNonce(16) } 
+  Message structure: currentDefKey encrypts: { message || nextAesKey || derivationNonce(16B) } 
 
   *derivationNonce= fresh nonce generated by the sender for each message, always encrypted with currentDefKey when leaves the browser
   *cumulativeNonce= hash-chain of all previous derivationNonces (always 16 B)
   *currentDefKey= Argon2id(nextAesKey, secretCode2 + cumulativeNonce)
-  ***The first message is encrypted with defkey derived with this nonce and secretCode2
+  ***The first message is encrypted with defKey derived with this nonce and secretCode2
 
 
 
