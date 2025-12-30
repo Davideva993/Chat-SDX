@@ -12,7 +12,7 @@
 9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
 ----the chat starts---
 -The first message is encrypted with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
-10)The sender encrypts message + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+10)The sender encrypts message (3 digits indicating the message length + the realMessage + padding up to 420 characters + extra random padding of 0–79 characters, e.g., 006Hello!awefTRe47...) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 */
 function app() {
@@ -1094,6 +1094,17 @@ function app() {
     }
 
 
+    function generatePadding(length) {
+        let padding = '';
+        const allowedCharacters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        for (let i = 0; i < length; i++) {
+            const randomIndex = Math.floor(Math.random() * allowedCharacters.length);
+            padding += allowedCharacters[randomIndex];
+        }
+        return padding
+    }
+
+
 
 
     async function encryptTheMessage() {
@@ -1102,6 +1113,15 @@ function app() {
             alert("The message is empty.");
             return;
         }
+        if (message.length > 420) {
+            alert("The message is longer than 420 characters. Please make it shorter or split it.")
+            return
+        }
+        const charactersNeededForPadding = 423 - 3 - message.length // Base padding needed to reach 423 characters (3 are reserved for the length field)
+        let extraPaddingLength = Math.floor(Math.random() * 80) // Random padding extension (0–79 extra characters)
+        let padding = generatePadding(charactersNeededForPadding + extraPaddingLength)
+        const messageLength3Chars = String(message.length).padStart(3, "0");
+        message = messageLength3Chars + message + padding //005HellonrUe23j0das0id02ej12e9...
         try {
             // 1. Generate the next random AES key that will be derived (secretCode2 + cumulativeNonce) and used after this message
             const nextAesKey = await crypto.subtle.generateKey(
@@ -1176,9 +1196,9 @@ function app() {
             );
             const full = new Uint8Array(decrypted);
             /* 3. Extract parts:
-                - message (variable length)
+                - padded message (variable length)
                 - nextAesKey raw (32 bytes)
-                - derivation nonce for the NEXT key (12 bytes) 
+                - derivation nonce for the NEXT key (16 bytes) 
             */
             const totalFixed = 32 + 16;                         // 48 bytes fixed at the end
             const msgLength = full.byteLength - totalFixed;
@@ -1186,10 +1206,21 @@ function app() {
             const msgBytes = full.slice(0, msgLength);
             const nextAesRaw = full.slice(msgLength, msgLength + 32);
             const derivationNonce = full.slice(msgLength + 32);
-            // 4. Show message
-            const msg = new TextDecoder().decode(msgBytes);
-            showMsg(msg, "partner");
-            // 5. Save the derivation nonce (was encrypted in the previous message)
+            // 4. Decode padded message into a string
+            const paddedMsg = new TextDecoder().decode(msgBytes);
+            // Extract the first 3 characters → real message length
+            const lenStr = paddedMsg.slice(0, 3);
+            // If "000", ignore the message 
+            if (lenStr === "000") {
+                console.warn("Received empty/ignored message.")
+                return
+            }
+            const realLen = parseInt(lenStr, 10); // real message lenght 018 => 18
+            // Extract the real message (characters, not bytes) 
+            const realMessage = paddedMsg.slice(3, 3 + realLen);
+            // 5. Show message
+            showMsg(realMessage, "partner");
+            // 6. Save the derivation nonce (was encrypted in the previous message)
             if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {//this is the first message
                 cumulativeNonce = derivationNonce
             } else { //if not the first message, cumulativeNonce depends on all previous derivationNonces
@@ -1199,7 +1230,7 @@ function app() {
                 const hash = await crypto.subtle.digest("SHA-256", combined);
                 cumulativeNonce = new Uint8Array(hash).slice(0, 16);  // always 16 byte
             }
-            // 6. Derive the next currentDefKey using the new cumulativeNonce
+            // 7. Derive the next currentDefKey using the new cumulativeNonce
             currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
         } catch (error) {
             console.error("Decryption failed:", error);
