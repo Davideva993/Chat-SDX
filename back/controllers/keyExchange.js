@@ -155,11 +155,11 @@ const keyExchangeCtrl = {
     try {
       const room = await Room.findOne({ where: { roomName } });
       if (!room || room.ongoingChat) {
-        return res.status(403).json({ error: 'Invalid request' , restartFront:true});
+        return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
       if (room && room.joinerToken !== joinerToken) {
         await room.destroy();
-        return res.status(403).json({ error: 'Invalid request' , restartFront:true});
+        return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
       await room.update({ encryptedDefKey });
       res.status(200).json({ success: true });
@@ -179,11 +179,11 @@ const keyExchangeCtrl = {
     try {
       const room = await Room.findOne({ where: { roomName } });
       if (!room || room.ongoingChat) {
-        return res.status(403).json({ error: 'Invalid request',restartFront:true });
+        return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
       if (room && room.hostToken !== hostToken) {
         await room.destroy();
-        return res.status(403).json({ error: 'Invalid request',restartFront:true });
+        return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
       if (!room.encryptedDefKey) {
         return res.status(404).json({ message: 'encryptedDefKey not found' });
@@ -205,11 +205,11 @@ const keyExchangeCtrl = {
     try {
       const room = await Room.findOne({ where: { roomName } });
       if (!room || room.ongoingChat) {
-        return res.status(403).json({ error: 'Invalid request', restartFront:true });
+        return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
       if (room && room.hostToken !== hostToken) {
         await room.destroy();
-        return res.status(403).json({ error: 'Invalid request', restartFront:true });
+        return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
       await room.update({ encryptedSecret });
       res.status(200).json({ success: true });
@@ -229,11 +229,11 @@ const keyExchangeCtrl = {
     try {
       const room = await Room.findOne({ where: { roomName } });
       if (!room || room.ongoingChat) {
-        return res.status(403).json({ error: 'Invalid request', restartFront:true });
+        return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
       if (room && room.joinerToken !== joinerToken) {
         await room.destroy();
-        return res.status(403).json({ error: 'Invalid request', restartFront:true });
+        return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
       if (!room.encryptedSecret) {
         return res.status(404).json({ message: 'encryptedSecret not found' });

@@ -34,9 +34,13 @@ const chatCtrl = {
       return res.status(403).json({ error: 'Invalid room or hostToken' })
     }
     inactivityTimerManager(roomName)
+    const pendingForMe = await Message.count({ where: { roomName, sender: 'joiner' } }); // joiner updated the keychain yet: host needs his message to update his keychain. Later he can send new messages
+    if (pendingForMe > 0) {
+      return res.status(429).json({ error: 'There is at least a new message for you: you are going to retraive it. Then please try again' })
+    };
     const pending = await Message.count({ where: { roomName, sender: 'host' } });
-    if (pending >= 3)
-      return res.status(429).json({ error: 'Your partner has 3 pending messages: wait please' });
+    if (pending >= 6)
+      return res.status(429).json({ error: 'Your partner has 6 pending messages: wait please' });
     await Message.create({ roomName, sender: 'host', message, order: pending });
     res.json({ success: true });
   },
@@ -49,18 +53,27 @@ const chatCtrl = {
     const room = await Room.findOne({ where: { roomName, joinerToken } });
     if (!room) {
       const targetRoom = await Room.findOne({ where: { roomName } })
-      const failedAuthAttemps = await targetRoom.failedAuth
-      if (failedAuthAttemps == 3) {
-        await Message.destroy({ where: { roomName } });
-        await targetRoom.destroy();
-        return res.status(403).json({ error: 'The room was destroyed because 3 failed attemps were detected' })
+      if (targetRoom) {
+        const failedAuthAttemps = await targetRoom.failedAuth
+        if (failedAuthAttemps == 3) {
+          await Message.destroy({ where: { roomName } });
+          await targetRoom.destroy();
+          return res.status(403).json({ error: 'The room was destroyed because 3 failed attemps were detected' })
+        }
+        await targetRoom.update({ failedAuth: failedAuthAttemps + 1 });
       }
+
       return res.status(403).json({ error: 'Invalid room or joinerToken' })
     };
+
     inactivityTimerManager(roomName)
+    const pendingForMe = await Message.count({ where: { roomName, sender: 'host' } }); // host updated the keychain yet: joiner needs his message to update his keychain. Later he can send new messages
+    if (pendingForMe > 0) {
+      return res.status(429).json({ error: 'There is at least a new message for you: you are going to retraive it. Then please try again' })
+    };
     const pending = await Message.count({ where: { roomName, sender: 'joiner' } });
-    if (pending >= 3) {
-      return res.status(429).json({ error: 'Your partner has 3 pending messages: wait please' })
+    if (pending >= 6) {
+      return res.status(429).json({ error: 'Your partner has 6 pending messages: wait please' })
     };
     await Message.create({ roomName, sender: 'joiner', message, order: pending });
     res.json({ success: true });
@@ -72,15 +85,20 @@ const chatCtrl = {
     if (!joinerToken || !roomName)
       return res.status(400).json({ error: 'Missing joinerToken or roomName' });
     const room = await Room.findOne({ where: { roomName, joinerToken } });
-    if (!room){
+    if (!room) {
       const targetRoom = await Room.findOne({ where: { roomName } })
-       const failedAuthAttemps = await targetRoom.failedAuth
+      if (targetRoom) {
+        const failedAuthAttemps = await targetRoom.failedAuth
         if (failedAuthAttemps == 3) {
           await Message.destroy({ where: { roomName } });
           await targetRoom.destroy();
           return res.status(403).json({ error: 'The room was destroyed because 3 failed attemps were detected' })
         }
-      return res.status(403).json({ error: 'Invalid room or joinerToken' })}
+        await targetRoom.update({ failedAuth: failedAuthAttemps + 1 });
+
+      }
+      return res.status(403).json({ error: 'Invalid room or joinerToken' })
+    }
     const encryptedMessages = await Message.findAll({
       where: { roomName, sender: "host" },
       order: [["order", "ASC"]]
@@ -102,15 +120,20 @@ const chatCtrl = {
     if (!hostToken || !roomName)
       return res.status(400).json({ error: 'Missing hostToken or roomName' });
     const room = await Room.findOne({ where: { roomName, hostToken } });
-    if (!room){
+    if (!room) {
       const targetRoom = await Room.findOne({ where: { roomName } })
-       const failedAuthAttemps = await targetRoom.failedAuth
+      if (targetRoom) {
+        const failedAuthAttemps = await targetRoom.failedAuth
         if (failedAuthAttemps == 3) {
           await Message.destroy({ where: { roomName } });
           await targetRoom.destroy();
           return res.status(403).json({ error: 'The room was destroyed because 3 failed attemps were detected' })
         }
-      return res.status(403).json({ error: 'Invalid room or hostToken' })}
+        await targetRoom.update({ failedAuth: failedAuthAttemps + 1 });
+
+      }
+      return res.status(403).json({ error: 'Invalid room or hostToken' })
+    }
     const encryptedMessages = await Message.findAll({
       where: { roomName, sender: "joiner" },
       order: [["order", "ASC"]]

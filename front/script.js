@@ -14,6 +14,7 @@
 -The first message is encrypted with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
 10)The sender encrypts message (3 digits indicating the message length + the realMessage + padding up to 420 characters + extra random padding of 0–79 characters, e.g., 006Hello!awefTRe47...) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+12)When the real chat stops, a "fake chat" automatically starts. It's made by empty but padded messages that are not visible in the user interface. This fake conversation will stop after 6 hours
 */
 function app() {
     'use strict'
@@ -821,7 +822,7 @@ function app() {
             .then(response => response.json())
             .then(data => {
                 if (data.restartFront === true) { restartFront() }
-
+                generateAndSendFakeMessage()
                 stepsAnimation("chat", "host", "completed")
                 setTimeout(() => {
                     updateDynamicElements("chatPage")
@@ -901,6 +902,7 @@ function app() {
             stepsAnimation("chat", "joiner", "completed")
             timer("joiner", "stop")
             alert("host is certified!")
+            generateAndSendFakeMessage()
             defKey = null
             setTimeout(() => {
                 updateDynamicElements("chatPage")
@@ -923,6 +925,41 @@ function app() {
     let joinerGetsMsgInterval = null
     let hostGetsMsgInterval = null
     let currentDefKey = null
+    let autoFakeMsg = false
+    let timerFakeMsg;
+    let hasConversationStarted = false;
+    let lastRealSender = null;
+    let lastFakeSender = null;          // "me" or "partner" 
+    let conversationStopped = false
+    let deadConversationTimer
+
+    function deadConversation() {
+        clearInterval(deadConversationTimer);
+        let t = 6*60*60;
+        deadConversationTimer = setInterval(() => {
+            console.log(t)
+            if (--t <= 0) {
+                clearInterval(deadConversationTimer);
+                alert("The conversation is probably end.");
+                deleteRoom()
+                location.reload()
+            }
+        }, 1000);
+    }
+
+    function msgFlowControl() {
+        clearInterval(timerFakeMsg);
+        let t = 30;
+        timerFakeMsg = setInterval(() => {
+            console.log(t)
+            if (--t <= 0) {
+                clearInterval(timerFakeMsg);
+                alert("Weird: it's been way too long since you last got any messages from your partner.Better to restart the chat.");
+                deleteRoom()
+                location.reload()
+            }
+        }, 1000);
+    }
 
 
     document.getElementById("sendMsgBtn").addEventListener("click", encryptTheMessage)
@@ -1010,7 +1047,7 @@ function app() {
                 location.reload()
                 return false
             }
-            if (response.status === 429) {
+            if (response.status === 429 && !autoFakeMsg) {
                 alert("Too many pending messages, please wait...");
                 return false;
             }
@@ -1020,8 +1057,17 @@ function app() {
             }
             const data = await response.json();
             sendOk = true
-            let message = document.getElementById("messageInput").value;
-            showMsg(message, "me");
+            if (!autoFakeMsg) {
+                let message = document.getElementById("messageInput").value;
+                showMsg(message, "me");
+                hasConversationStarted = true;
+                lastRealSender = "me";
+            }
+            if (autoFakeMsg) {
+                console.log("host sent a fake msg")
+                lastFakeSender = "me"
+            }
+            autoFakeMsg = false
             document.getElementById("messageInput").value = ""
             return true;
 
@@ -1047,7 +1093,7 @@ function app() {
                 location.reload()
                 return false
             }
-            if (response.status === 429) {
+            if (response.status === 429 && !autoFakeMsg) {
                 alert("Too many pending messages, please wait...");
                 return false;
             }
@@ -1057,9 +1103,19 @@ function app() {
             }
             const data = await response.json();
             sendOk = true
-            let message = document.getElementById("messageInput").value;
-            showMsg(message, "me");
-            document.getElementById("messageInput").value = ""
+            if (!autoFakeMsg) {
+                let message = document.getElementById("messageInput").value;
+                showMsg(message, "me");
+                document.getElementById("messageInput").value = ""
+                hasConversationStarted = true;
+                lastRealSender = "me";
+            }
+            if (autoFakeMsg) {
+                console.log("joiner sent a fake msg")
+                lastFakeSender = "me"
+            }
+            autoFakeMsg = false
+
             return true;
         } catch (error) {
             console.error(error);
@@ -1096,7 +1152,7 @@ function app() {
 
     function generatePadding(length) {
         let padding = '';
-        const allowedCharacters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        const allowedCharacters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789èìòàé';
         for (let i = 0; i < length; i++) {
             const randomIndex = Math.floor(Math.random() * allowedCharacters.length);
             padding += allowedCharacters[randomIndex];
@@ -1104,12 +1160,28 @@ function app() {
         return padding
     }
 
+    function generateAndSendFakeMessage() {
+        const delay = Math.random() * 3000 + 3000; // random 3000–6000ms
+        setTimeout(() => {
+            if (hasConversationStarted && conversationStopped) {
+                if (lastRealSender === "partner" || lastFakeSender === "partner") {
+                    lastRealSender = null
+                    lastFakeSender = "partner"
+                    autoFakeMsg = true;
+                    encryptTheMessage();
+                }
+            }
+            conversationStopped=true 
+            generateAndSendFakeMessage();
+        }, delay);
+    }
+
 
 
 
     async function encryptTheMessage() {
         let message = document.getElementById("messageInput").value;
-        if (message.trim() === "") {
+        if (message.trim() === "" && !autoFakeMsg) {
             alert("The message is empty.");
             return;
         }
@@ -1117,11 +1189,14 @@ function app() {
             alert("The message is longer than 420 characters. Please make it shorter or split it.")
             return
         }
+        if (autoFakeMsg) {
+            message = ""
+        }
         const charactersNeededForPadding = 423 - 3 - message.length // Base padding needed to reach 423 characters (3 are reserved for the length field)
         let extraPaddingLength = Math.floor(Math.random() * 80) // Random padding extension (0–79 extra characters)
         let padding = generatePadding(charactersNeededForPadding + extraPaddingLength)
         const messageLength3Chars = String(message.length).padStart(3, "0");
-        message = messageLength3Chars + message + padding //005HellonrUe23j0das0id02ej12e9...
+        message = messageLength3Chars + message + padding //004CafènrUe23j0das0id02ej12e9...
         try {
             // 1. Generate the next random AES key that will be derived (secretCode2 + cumulativeNonce) and used after this message
             const nextAesKey = await crypto.subtle.generateKey(
@@ -1161,6 +1236,12 @@ function app() {
             }
             // 8. Save the derivation nonce for the next key derivation if the server saved the msg
             if (sendOk) {
+                if (!autoFakeMsg) {
+                    conversationStopped = false
+                    deadConversation()
+                }
+                
+
                 sendOk = false
                 if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {
                     // first message
@@ -1183,7 +1264,10 @@ function app() {
     }
 
     async function decryptTheMessage(base64EncryptedMsg) {
+
         try {
+            msgFlowControl() // alert if no message is received for a while
+
             // 1. Decode base64 → IV (12) + ciphertext
             const encryptedWithIv = Uint8Array.from(atob(base64EncryptedMsg), c => c.charCodeAt(0));
             const iv = encryptedWithIv.slice(0, 12);
@@ -1210,16 +1294,20 @@ function app() {
             const paddedMsg = new TextDecoder().decode(msgBytes);
             // Extract the first 3 characters → real message length
             const lenStr = paddedMsg.slice(0, 3);
-            // If "000", ignore the message 
-            if (lenStr === "000") {
-                console.warn("Received empty/ignored message.")
-                return
-            }
             const realLen = parseInt(lenStr, 10); // real message lenght 018 => 18
             // Extract the real message (characters, not bytes) 
             const realMessage = paddedMsg.slice(3, 3 + realLen);
             // 5. Show message
-            showMsg(realMessage, "partner");
+            // If "000", ignore the message: it's a fake one
+            if (lenStr !== "000") {
+                showMsg(realMessage, "partner");
+                deadConversation()
+                hasConversationStarted = true;
+                lastRealSender = "partner";
+                conversationStopped = false
+            } else if (lenStr == "000") {
+                lastFakeSender = "partner"
+            }
             // 6. Save the derivation nonce (was encrypted in the previous message)
             if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {//this is the first message
                 cumulativeNonce = derivationNonce

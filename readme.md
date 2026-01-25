@@ -1,41 +1,64 @@
-
 # Chat SDX
 
-An experimental, minimalist end-to-end encrypted chat that doesn't trust the server backend, not even for the key exchange.
 
-Requires one **temporarily secure external channel** (voice call, QR, meeting, another app etc.) just to exchange two secret words and start the session. 
-The countdown and user verification systems are designed to prevent the chat from starting if any attempt at compromise is detected. 
-The system prioritizes anonymity and only collects information necessary for operation, ensuring that sensitive data does not pass through the server in plain text. 
-Not recommended for everyday use. Security before convenience.
+## Overview
+   Chat SDX is an experimental, minimalist, end‑to‑end, ephemeral chat system built around privacy and security. It assumes that the server may already be compromised before the chat begins and before any keys are exchanged, while considering the frontend running in the browser to be genuine and unaltered.
+   It requires an external channel, not visible to the server at least until the chat starts, to exchange two secret words and the roomName before the session begins.
 
-Every message uses a **unique key** derived via Argon2id using:
-- a fresh random AES key (sent encrypted in the current message)
-- a salt composed of **secret word 2 and the hash-chain of the present and all previous random derivation nonces**
-* The first message is encrypted with the defKey derived via Argon2id using secret word 2 and the nonce from EIK (step 6 or 7)
+   From the start of the key‑exchange phase until after the chat ends, a set of client‑side mechanisms — designed not to rely on the backend — monitors unexpected conditions that could indicate risk and, if necessary, immediately interrupts the session, clears memory, and attempts to delete the room. The user is also assisted by automatic systems that help protect their privacy during and after the session, both at the network level and through self‑destruction mechanisms.
+
+   Encryption uses a strong and distinct key for every message, so the compromise of a single message does not allow an attacker to recover previous messages or decrypt future ones.
+   Chat SDX places privacy and security decisively above convenience, accepting as a consequence that it is not suitable for everyday use. **It is more an experiment than a product: feedback, reflections and critiques are welcome.**
 
 
 ## Security
 1. **Chat will not start if**:
-   - EIK was bruteforced (1)
-   - EIK was replaced (2)
-   - EDK was replaced (3)
-   - Someone sends a wrong token (host or joiner) during the key exchange phase (potential active attack)
+   - Encrypted initKey (EIK) was bruteforced (1) because of the independents timers client side detecting suspicious delay and ejects users.
+   - EIK was replaced (2) because the joiner frontend can't use the genuine tempKey to decrypt EIK and will directly eject him and clear his   memory. The host will be ejected by the timer few seconds later because he will not receive a valid EDK.
+   - Encrypted defKey (EDK) was replaced (3) because the host frontend can't use the genuine initKey to decrypt EDK and will directly eject him and clear his memory. The joiner will be ejected by the timer few seconds later because he will not receive a valid encrypted SC2 (1 attemp allowed).
+   - Someone sends a wrong token (host or joiner) during the key exchange phase (potential active attack).
 
 2. **Chat starts safely if**:
-   - EIK is stored and bruteforced later
-   - The secure channel is compromised after the key exchange
+   - EIK is stored and bruteforced later, because the attacker will find initKey (public RSA) that is now useless because it will never be used again.
+   - The secure channel is compromised after the key exchange, because SC1, tempKey and initKey are now useless and the SC2 is not enought to break the protocol.
    - Someone sends a wrong token (host or joiner) while the chat is already ongoing (up to 3 attempts; then the room is destroyed)
 
+3. **Chat is compromised if**:
+   - An attacker compromises the server and breaks initKey and stores all the blobs since the key exchange and compromise the secure channel after the key exchange or, instead of compromise the secure channel, the SC2 is weak. This attacker can read everything.
+   - An attacker compromises the server and the secure channel before the key exchange and is reactive during the key exchange. This attacker could use the initKey to replace the genuine defKey and make a mitm.
+   - An attacker compromises the frontend (keylogger, edited frontend...)
+   
+
+
 3. **Other**:
-   -Only local variables to store information client-side.
-   -Each message encrypted with a unique key derived using SC2 and cumulativeNonce: it depends on all previous derivationNonces.
-   -It’s suggested to host it through Tor.
-   -Only the last 3 messages are kept on the server
-   -The room auto-deletes after 6 hours if no one sends a message
-   -The fields `nonce`, `encryptedInitKey`, `encryptedDefKey`, and `encryptedSecret` are automatically deleted 12 seconds after the joiner enters the room
-   -Both participants can delete the room at any time
-   -The cumulativeNonce (hash-chain of previous derivationNonces) is computed independently by both users for each new message, it never leaves the browser and ensures key synchronization
-   -Key exchange endpoints are automatically disabled once the chat enters the chat phase.
+      **Memory**
+      -The entire client-side script runs inside an IIFE to keep variables local and isolated. No data is stored persistently (e.g., in localStorage or cookies), so a page refresh clears everything from memory.
+      -The fields `nonce`, `encryptedInitKey`, `encryptedDefKey`, and `encryptedSecret` are automatically deleted 12 seconds after the joiner enters the room and only the last 6 messages (real or fake) are kept on the server.
+
+      **Encryption**
+      -Each chat message, real or dummy, is encrypted with a fresh AES‑GCM key called currentDefKey, derived via Argon2id from a newly generated random AES key (nextAesKey) included in the encrypted message together with the concatenation of SC2 and cumulativeNonce.
+      The cumulativeNonce is a 16‑byte hash‑chain built from all previous derivationNonce values included in each message, starting from the nonce sent with the defKey during the key exchange; it is computed independently by both clients, never leaves the browser, and keeps their AES‑GCM key evolution perfectly synchronized.
+      SC2 leaves the browser only once, hashed and encrypted, during the final verification step of the key exchange.
+      -No encryption key is sent outside the browser before being encrypted with another key: no exception.
+
+      **Network**
+      -Every message (real or dummy) includes fixed and a random padding so an attacker cannot determine the real length of the content.
+      -When users aren't chatting, the system periodically send empty (but properly padded) encrypted "dummy" messages at random intervals (3-6s). The purpose is make it harder for an observer to guess when real conversation is happening and increase the difficulty of targeting important messages.
+      -Key exchange endpoints are automatically disabled once the chat enters the chat phase.
+      -It’s suggested to host it through Tor.
+
+      **Room deletion and clear brower memory**
+      -Both participants can delete the room at any time using the button or a page refresh.
+      -The room auto-deletes and the browser memory is cleared if after 6 hours if no one sends a real message or if the incoming message flow stops (i.e., the other person's fake/dummy message system unexpectedly stops sending for 30 seconds), or if a possible attempt of compromising is detected (keys, tokens or SC2 mismatch, suspicious delay > 9 sec during the key exchange, 3 wrong token sent to the server, the room was deleted by the other user).
+      -After 6 hours of dummy messages, the browser clears all local data and asks the server to delete the room.
+  
+   
+
+
+   
+
+
+
 
    ## Frontend
 -The steps:
@@ -50,8 +73,9 @@ Every message uses a **unique key** derived via Argon2id using:
 9)The joiner asks for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the process is validated and the joiner timer cleared.
 ----the chat starts---
 -The first message is encrypted (and decrypted) with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
-10)The sender encrypts message (3 digits indicating the message length + the realMessage + padding up to 420 characters + extra random padding of 0–79 characters, e.g., 006Hello!awefTRe47...) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
+10)The sender encrypts message (3 digit ASCII length of the real message + the realMessage + padding up to 420 characters + extra random padding of 0–79 characters, e.g., 004CaféawefTRe47...) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (SHA-256(old||new)[0:15]), then derives the next currentDefKey = the received AES derived with secretCode2 + cumulativeNonce.
+12)When the real chat stops, a "fake chat" automatically starts. It's made by empty but padded messages that are not visible in the user interface. This fake conversation will stop after 6 hours
 
  
 
