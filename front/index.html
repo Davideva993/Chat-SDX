@@ -57,11 +57,12 @@
                 <ul>
                     <li>No unnecessary user data (phone, email, account...)</li>
                     <li>Sensitive data and keys never leaves the browser in cleartext</li>
-                    <li>Security over comfort: ex, session aborts instantly if compromise is suspected</li>
-                    <li>Server stores only the last 3 encrypted messages, temporarily</li>
-                    <li>No cookies or persistent storage – reload clears the browser, one button deletes the room</li>
+                    <li>Security over comfort: session aborts instantly if compromise is suspected</li>
+                    <li>Server stores only the last 6 encrypted messages (real or fake), temporarily</li>
+                    <li>No cookies, no persistent storage, and no global variables — reloading the page wipes everything. The room and all browser-side data auto‑clear after 6 hours of real inactivity.</li>
                     <li>Every message encrypted with a unique key, computed locally, and unknown to the server</li>
                     <li>Knowing one message key is not sufficient to derive previous or next keys</li>
+                    <li>Each message is padded and when the chat stops an automatic fake-messages system starts</li>
                     <li>It’s suggested to host it through Tor</li>
                 </ul>
             </section>

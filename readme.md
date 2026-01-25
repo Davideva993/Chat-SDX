@@ -40,6 +40,7 @@
       The cumulativeNonce is a 16‑byte hash‑chain built from all previous derivationNonce values included in each message, starting from the nonce sent with the defKey during the key exchange; it is computed independently by both clients, never leaves the browser, and keeps their AES‑GCM key evolution perfectly synchronized.
       SC2 leaves the browser only once, hashed and encrypted, during the final verification step of the key exchange.
       -No encryption key is sent outside the browser before being encrypted with another key: no exception.
+      -The initKey is an RSA public key because even if the tempKey (which encrypts the initKey) is compromised later, the defKey it protects remains safe: the RSA private key never leaves the browser. Another reason is that only someone who immediately holds the tempKey can recover the initKey and use it to encrypt the defKey, and any attempt to tamper with the tempKey triggers the safety timers. No trust in the server is required. 
 
       **Network**
       -Every message (real or dummy) includes fixed and a random padding so an attacker cannot determine the real length of the content.
