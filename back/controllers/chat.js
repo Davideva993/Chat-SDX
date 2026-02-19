@@ -24,7 +24,7 @@ const chatCtrl = {
       const targetRoom = await Room.findOne({ where: { roomName } })
       if (targetRoom) {
         const failedAuthAttemps = await targetRoom.failedAuth
-        if (failedAuthAttemps == 3) {
+        if (failedAuthAttemps >= 3) {
           await Message.destroy({ where: { roomName } });
           await targetRoom.destroy();
           return res.status(403).json({ error: 'The room was destroyed because 3 failed attemps were detected' })

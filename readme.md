@@ -2,13 +2,15 @@
 
 
 ## Overview
-   Chat SDX is an experimental, minimalist, end‑to‑end, ephemeral chat system built around privacy and security. It assumes that the server may already be compromised before the chat begins and before any keys are exchanged, while considering the frontend running in the browser to be genuine and unaltered.
+   Chat SDX is an experimental, minimalist, end‑to‑end, ephemeral chat system built around privacy and security. It assumes that the server may already be compromised before the chat begins and before any keys are exchanged, that the user will not perform manual verifications, and that the frontend running in the browser is genuine and unaltered.
+
    It requires an external channel, not visible to the server at least until the chat starts, to exchange two secret words and the roomName before the session begins.
 
    From the start of the key‑exchange phase until after the chat ends, a set of client‑side mechanisms — designed not to rely on the backend — monitors unexpected conditions that could indicate risk and, if necessary, immediately interrupts the session, clears memory, and attempts to delete the room. The user is also assisted by automatic systems that help protect their privacy during and after the session, both at the network level and through self‑destruction mechanisms.
 
-   Encryption uses a strong and distinct key for every message, so the compromise of a single message does not allow an attacker to recover previous messages or decrypt future ones.
-   Chat SDX places privacy and security decisively above convenience, accepting as a consequence that it is not suitable for everyday use. **It is more an experiment than a product: feedback, reflections and critiques are welcome.**
+   Encryption uses a strong and distinct key for every message and the compromise of a single message does not allow an attacker to recover previous messages or decrypt future ones.
+   Chat SDX places privacy and security decisively above convenience, accepting that the chat could be immediately lost if any indication of risk appears. As a result, it is not suitable for everyday use.
+    **It is more an experiment than a product: feedback, reflections and critiques are welcome.**
 
 
 
@@ -45,14 +47,14 @@
 
    **Network**
       -Every message (real or dummy) includes fixed and a random padding so an attacker cannot determine the real length of the content.
-      -When users aren't chatting, the system periodically sends empty (but properly padded) encrypted "dummy" messages at random intervals (3-6s). The purpose is to make it harder for an observer to guess when real conversation is happening and increase the difficulty of targeting important messages.
+      -When the real chat stops, if the room is not deleted, a "fake chat" starts automatically. It uses empty messages (padded like real ones) that stay hidden from the user interface. The fake chat keeps going for a random time between 3 and 9 hours.  The timing between fake messages tries to copy the behavior that the user showed during the real conversation (using a soft Gaussian curve around the real average). If that can’t be done properly, it just uses a simple random pause of 3 to 6 seconds.  The purpose is to make it harder for an observer to guess when real conversation is happening and increase the difficulty of targeting important messages.
       -Key exchange endpoints are automatically disabled once the chat phase begins.
       -It’s suggested to host it through Tor.
 
    **Room deletion and clear browser memory**
       -Both participants can delete the room at any time using the button or a page refresh.
       -The room auto-deletes and the browser memory is cleared after 6 hours, if no one sends a real message or if the incoming message flow stops (i.e., the other person's fake/dummy message system unexpectedly stops sending for 30 seconds), or if a possible attempt to compromise is detected (keys, tokens or SC2 mismatch, suspicious delay > 9 sec during the key exchange, 3 wrong token sent to the server, the room was deleted by the other user).
-      -After 6 hours of dummy messages, the browser clears all local data and asks the server to delete the room.
+      -After 3 to 9 hours of dummy messages, the browser clears all local data and asks the server to delete the room.
   
    
 
@@ -71,7 +73,7 @@
 -The first message is encrypted (and decrypted) with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
 10)The sender encrypts the message (3 digit ASCII length of the real message + the realMessage + padding up to 420 characters + extra random padding of 0–79 characters, e.g., 004CaféawefTRe47...) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (SHA-256(old||new)[0:15]), then derives the next currentDefKey = the received AES derived with secretCode2 + cumulativeNonce.
-12)When the real chat stops, a "dummy chat" automatically starts. It's made by empty but padded messages that are not visible in the user interface. This fake conversation will stop after 6 hours
+12)When the real chat stops, if the room is not deleted, a "fake chat" starts automatically. It uses empty messages (padded like real ones) that stay hidden from the user interface.  The fake chat keeps going for a random time between 3 and 9 hours.  The timing between fake messages tries to copy the behavior that the user showed during the real conversation (using a soft Gaussian curve around the real average). If that can’t be done properly, it just uses a simple random pause of 3 to 6 seconds. 
  
 
 

@@ -14,7 +14,8 @@
 -The first message is encrypted with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
 10)The sender encrypts message (3 digits indicating the message length + the realMessage + padding up to 420 characters + extra random padding of 0–79 characters, e.g., 006Hello!awefTRe47...) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
-12)When the real chat stops, a "fake chat" automatically starts. It's made by empty but padded messages that are not visible in the user interface. This fake conversation will stop after 6 hours
+12)When the real chat stops, if the room is not deleted, a "fake chat" starts automatically. It uses empty messages (padded like real ones) that stay hidden from the user interface.  The fake chat keeps going for a random time between 3 and 9 hours.  The timing between fake messages tries to copy the simulate the behavior the user showed during the real conversation (using a soft Gaussian curve around the real average). If that can’t be done properly, it just uses a simple random pause of 3 to 6 seconds. 
+
 */
 function app() {
     'use strict'
@@ -932,12 +933,18 @@ function app() {
     let lastFakeSender = null;          // "me" or "partner" 
     let conversationStopped = false
     let deadConversationTimer
+    let customDummyInterval = {
+        startRealConversationTimestamp: 0,
+        messageCounter: 0,
+        customMean: 0
+    };
+    let myFirstMessageHasBeenSent = false // the user very first message or the user first message after his dummy trafic
 
     function deadConversation() {
         clearInterval(deadConversationTimer);
-        let t = 6*60*60;
+        let hours = 3 + Math.random() * 6;
+        let t = Math.floor(hours * 60 * 60) // between 3 and 9 hours since last real message
         deadConversationTimer = setInterval(() => {
-            console.log(t)
             if (--t <= 0) {
                 clearInterval(deadConversationTimer);
                 alert("The conversation is probably end.");
@@ -951,7 +958,7 @@ function app() {
         clearInterval(timerFakeMsg);
         let t = 30;
         timerFakeMsg = setInterval(() => {
-            console.log(t)
+            // console.log(t)
             if (--t <= 0) {
                 clearInterval(timerFakeMsg);
                 alert("Weird: it's been way too long since you last got any messages from your partner.Better to restart the chat.");
@@ -962,7 +969,7 @@ function app() {
     }
 
 
-    document.getElementById("sendMsgBtn").addEventListener("click", encryptTheMessage)
+    document.getElementById("sendMsgBtn").addEventListener("click", () => { autoFakeMsg = false; encryptTheMessage() })
     document.getElementById("destroyChatBtn").addEventListener("click", deleteRoom)
     document.getElementById("newWindowBtn").addEventListener("click", openNewWindow)
 
@@ -990,14 +997,14 @@ function app() {
             }
             if (!response.ok) {
                 const err = await response.json();
-                throw new Error(err.error || 'Errore server');
+                throw new Error(err.error || 'Server error');
             }
             const encryptedMessages = await response.json();
             for (let i = 0; i < encryptedMessages.length; i++) {
                 await decryptTheMessage(encryptedMessages[i].message)
             }
         } catch (error) {
-            console.error("Errore recupero messaggio:", error);
+            console.error("Error retrieving message:", error);
             throw error;
         }
     }
@@ -1019,7 +1026,7 @@ function app() {
             }
             if (!response.ok) {
                 const err = await response.json();
-                throw new Error(err.error || 'Errore server');
+                throw new Error(err.error || 'Server error');
             }
             const encryptedMessages = await response.json();
             for (let i = 0; i < encryptedMessages.length; i++) {
@@ -1066,8 +1073,8 @@ function app() {
             if (autoFakeMsg) {
                 console.log("host sent a fake msg")
                 lastFakeSender = "me"
+
             }
-            autoFakeMsg = false
             document.getElementById("messageInput").value = ""
             return true;
 
@@ -1114,7 +1121,6 @@ function app() {
                 console.log("joiner sent a fake msg")
                 lastFakeSender = "me"
             }
-            autoFakeMsg = false
 
             return true;
         } catch (error) {
@@ -1159,19 +1165,45 @@ function app() {
         }
         return padding
     }
-
     function generateAndSendFakeMessage() {
-        const delay = Math.random() * 3000 + 3000; // random 3000–6000ms
+        let delay = "1993"
+        if (customDummyInterval?.customMean > 3000 && customDummyInterval?.customMean < 9000) {
+            const mean = customDummyInterval.customMean;  // The average interval so far (in ms), our target center
+            // --- Box-Muller transform to generate a standard normal random variable Z ~ N(0,1) ---
+            let u = Math.random();
+            let v = Math.random();
+            // Prevent log(0) edge case (extremely rare, but mathematically safer)
+            while (u === 0) u = Math.random();
+            while (v === 0) v = Math.random();
+            // Box-Muller polar form: produces one standard normal variate
+            const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+            // Scale and shift to get desired distribution: ~ N(mean, σ) where σ = 18% of mean
+            delay = mean + z * (mean * 0.18);
+            // Hard constraints – never go below absolute minimum or outside ±50% of mean
+            delay = Math.max(2000, delay);                // Never faster than 2 seconds
+            delay = Math.max(mean * 0.5, delay);          // At least 50% of the observed average
+            delay = Math.min(mean * 1.5, delay);          // At most 150% of the observed average
+            // Round to nearest integer millisecond (more natural for setTimeout / setInterval)
+            delay = Math.round(delay);
+            // Now 'delay' is ready to be used (e.g. setTimeout(sendFakeMessage, delay))
+        }
+        else {
+            delay = Math.random() * 3000 + 3000; // random 3000–6000ms
+        }
+
+
+
         setTimeout(() => {
             if (hasConversationStarted && conversationStopped) {
                 if (lastRealSender === "partner" || lastFakeSender === "partner") {
                     lastRealSender = null
                     lastFakeSender = "partner"
                     autoFakeMsg = true;
+                    myFirstMessageHasBeenSent = false
                     encryptTheMessage();
                 }
             }
-            conversationStopped=true 
+            conversationStopped = true
             generateAndSendFakeMessage();
         }, delay);
     }
@@ -1237,10 +1269,19 @@ function app() {
             // 8. Save the derivation nonce for the next key derivation if the server saved the msg
             if (sendOk) {
                 if (!autoFakeMsg) {
+                    if (!myFirstMessageHasBeenSent) { // the user very first message or the user first message after his dummy trafic
+                        customDummyInterval.startRealConversationTimestamp = Date.now()
+                        customDummyInterval.messageCounter = 0
+                        myFirstMessageHasBeenSent = true
+                        console.log("first message sent")
+                    }
                     conversationStopped = false
                     deadConversation()
+                    customDummyInterval.messageCounter++
+                    customDummyInterval.customMean = (Date.now() - customDummyInterval.startRealConversationTimestamp) / customDummyInterval.messageCounter
+                    //console.log(customDummyInterval)
                 }
-                
+
 
                 sendOk = false
                 if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {
