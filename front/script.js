@@ -2,20 +2,18 @@
 /*
 -The steps:
 1)The host generates a nonce, the tempKey (using secretCode1 and Argon), the initKey (public RSA-OAEP) then he registers a room and receives the hostToken and the roomName.
-2)The host asks each 1,5s if the other user (joiner) joined the room.
+2)The host asks every 1.5s if the other user (joiner) joined the room.
 3)The joiner generates the defKey (AES), joins the room (with roomName) and receives the joinerToken.
 4)The host, knowing the joiner is present, generates a self-destruct timer and sends the initKey encrypted by the tempKey and the nonce to the server.
 5)The joiner asks for the nonce and encrypted initKey. Then he generates the tempKey (secretCode1, nonce and Argon) and uses it to decrypt the initKey.
-6) The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server. The first currentKey is the defKey derived with this nonce and the secretCode2.
-7) The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is used with the secretCode2 to derivate the first currentKey, and the clean defKey is imported. The self-destruct timer is cleared.
-8)The host Encrypts the hash of secretCode2 using the defKey and sends it to the server.
-9)The joiner ask for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the processus is validated and the joiner timer cleared.
+6)The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server. The first currentKey is the defKey derived with this nonce and the secretCode2.
+7)The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is used with the secretCode2 to derive the first currentKey, and the clean defKey is imported. The self-destruct timer is cleared.
+8)The host encrypts the hash of secretCode2 using the defKey and sends it to the server then starts the poling to get new messages.
+9)The joiner asks for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the process is validated and the joiner timer cleared then sends the first message and starts the poling to get new messages.
 ----the chat starts---
--The first message is encrypted with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
-10)The sender encrypts message (3 digits indicating the message length + the realMessage + padding up to 420 characters + extra random padding of 0–79 characters, e.g., 006Hello!awefTRe47...) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
-11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]), then derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
-12)When the real chat stops, if the room is not deleted, a "fake chat" starts automatically. It uses empty messages (padded like real ones) that stay hidden from the user interface.  The fake chat keeps going for a random time between 3 and 9 hours.  The timing between fake messages tries to copy the simulate the behavior the user showed during the real conversation (using a soft Gaussian curve around the real average). If that can’t be done properly, it just uses a simple random pause of 3 to 6 seconds. 
-
+-The first message is encrypted (and decrypted) with defKey derived with the nonce (step 6 or 7) and the secretCode2 and sent by the joiner. Then:
+10)The sender encrypts a message (3 digit ASCII length of the real message + the realMessage (can be dummy) + padding up to 420 characters + extra random padding of 0–79 characters, e.g., 004CaféawefTRe47...) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce. 
+11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (SHA-256(old||new)[0:15]), then derives the next currentDefKey = the received AES derived with secretCode2 + cumulativeNonce. Finally, he sends a message (a dummy one if the user doesn't send a real message) after 3 seconds.
 */
 function app() {
     'use strict'
@@ -192,6 +190,7 @@ function app() {
 
 
     //--------------------------------Functional functions (keyExchange)
+
     function restartFront() {
         alert("The chat cannot start. The room name is wrong, the room was removed for security reasons, or a chat is already active. Please try again and inform your partner.");
         location.reload()
@@ -823,14 +822,11 @@ function app() {
             .then(response => response.json())
             .then(data => {
                 if (data.restartFront === true) { restartFront() }
-                generateAndSendFakeMessage()
                 stepsAnimation("chat", "host", "completed")
-                setTimeout(() => {
-                    updateDynamicElements("chatPage")
-                    if (!hostGetsMsgInterval) {
-                        hostGetsMsgInterval = setInterval(hostAsksForMessage, 1000);
-                    }
-                }, 1000);
+                updateDynamicElements("chatPage")
+                if (!hostGetsMsgInterval) {
+                    hostGetsMsgInterval = setInterval(hostAsksForMessage, MESSAGE_GET_DELAY);
+                }
             })
             .catch(error => {
                 stepsAnimation("validated", "host", "failed")
@@ -902,15 +898,21 @@ function app() {
         if (a.length === b.length && a.toString() === b.toString()) {
             stepsAnimation("chat", "joiner", "completed")
             timer("joiner", "stop")
-            alert("host is certified!")
-            generateAndSendFakeMessage()
+            //alert("host is certified!")
+
             defKey = null
+            updateDynamicElements("chatPage")
+
             setTimeout(() => {
-                updateDynamicElements("chatPage")
+                constantRateTick() //joiner send the first message
                 if (!joinerGetsMsgInterval) {
-                    joinerGetsMsgInterval = setInterval(joinerAsksForMessage, 1000);
+                    joinerGetsMsgInterval = setInterval(joinerAsksForMessage, MESSAGE_GET_DELAY);//joinerGetsMsgInterval is called if a message is retraived: the loop starts
                 }
-            }, 1000);
+            }, 1400);
+
+
+
+
         } else {
             alert("host is not certified")
             deleteRoom()
@@ -923,22 +925,222 @@ function app() {
 
     //--------------------------------Functional functions (chat part)
 
-    let joinerGetsMsgInterval = null
     let hostGetsMsgInterval = null
+    let joinerGetsMsgInterval = null
     let currentDefKey = null
-    let autoFakeMsg = false
-    let timerFakeMsg;
-    let hasConversationStarted = false;
-    let lastRealSender = null;
-    let lastFakeSender = null;          // "me" or "partner" 
-    let conversationStopped = false
     let deadConversationTimer
-    let customDummyInterval = {
-        startRealConversationTimestamp: 0,
-        messageCounter: 0,
-        customMean: 0
-    };
-    let myFirstMessageHasBeenSent = false // the user very first message or the user first message after his dummy trafic
+    let outgoingQueue = [];
+    const MESSAGE_RESPONSE_DELAY = 3000; // A message is sent 3 seconds after receiving one. The joiner sends the first message (outside the loop).
+    const MESSAGE_GET_DELAY = 3000; //Check for new messages every 3 seconds.
+
+    document.getElementById("destroyChatBtn").addEventListener("click", deleteRoom)
+    document.getElementById("newWindowBtn").addEventListener("click", openNewWindow)
+
+
+    document.getElementById("sendMsgBtn").addEventListener("click", () => {
+        const msg = document.getElementById("messageInput").value.trim();
+        if (msg.length === 0) return;
+        outgoingQueue.push(msg);
+        document.getElementById("messageInput").value = "";
+    });
+
+
+
+    function constantRateTick() {
+        let msg;
+        if (outgoingQueue.length > 0) {
+            msg = outgoingQueue.shift();
+        } else {
+            msg = "";
+        }
+        encryptTheMessage(msg); // it sends the oldest message (real) or, if there is not a real message in the queue, it sends an empty one
+    }
+
+
+
+
+
+    async function encryptTheMessage(realMessage) {
+        if (realMessage === null || realMessage === undefined) {
+            return;
+        }
+        if (realMessage.length > 420) {
+            console.warn("The message is longer than 420 characters. Please make it shorter or split it.")
+            return
+        }
+        const charactersNeededForPadding = 423 - 3 - realMessage.length // Base padding needed to reach 423 characters (3 are reserved for the length field)
+        let extraPaddingLength = Math.floor(Math.random() * 80) // Random padding extension (0–79 extra characters)
+        let padding = generatePadding(charactersNeededForPadding + extraPaddingLength)
+        const messageLength3Chars = String(realMessage.length).padStart(3, "0");
+        let paddedMessage = messageLength3Chars + realMessage + padding //004CafènrUe23j0das0id02ej12e9...
+        try {
+            // 1. Generate the next random AES key that will be derived (secretCode2 + cumulativeNonce) and used after this message
+            const nextAesKey = await crypto.subtle.generateKey(
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"]
+            );
+            const nextAesRaw = new Uint8Array(await crypto.subtle.exportKey("raw", nextAesKey));
+            // 2. Generate a fresh derivation nonce (16 bytes) that will be cumulated and used (with secretCode2) to derive the key for the NEXT message
+            const derivationNonce = crypto.getRandomValues(new Uint8Array(16));
+            // 3. Build the payload: paddedMessage || nextAesKey (32) || derivationNonce (16)
+            const encoder = new TextEncoder();
+            const msgData = encoder.encode(paddedMessage);
+            const payload = new Uint8Array(msgData.byteLength + 32 + 16);
+            payload.set(msgData, 0);
+            payload.set(nextAesRaw, msgData.byteLength);
+            payload.set(derivationNonce, msgData.byteLength + 32);
+            // 4. Standard AES-GCM IV (still sent in clear – required by the algorithm)
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            // 5. Encrypt everything with the current key
+            const encrypted = await crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv },
+                currentDefKey,
+                payload
+            );
+            // 6. Prepend IV and convert to base64
+            const result = new Uint8Array(iv.byteLength + encrypted.byteLength);
+            result.set(iv, 0);
+            result.set(new Uint8Array(encrypted), iv.byteLength);
+            const base64EncryptedMsg = btoa(String.fromCharCode(...result));
+            // 7. Send message
+            if (userName === "host") {
+                await hostSendsMessage(base64EncryptedMsg, realMessage);
+            } else {
+                await joinerSendsMessage(base64EncryptedMsg, realMessage);
+            }
+            // 8. Save the derivation nonce for the next key derivation if the server saved the msg
+            if (sendOk) {
+                if(realMessage.length>0){deadConversation()}
+                sendOk = false
+                if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {
+                    // first message
+                    cumulativeNonce = derivationNonce
+                } else {
+                    // others messages
+                    const combined = new Uint8Array(32);
+                    combined.set(cumulativeNonce, 0);
+                    combined.set(derivationNonce, 16);
+                    const hash = await crypto.subtle.digest("SHA-256", combined);
+                    cumulativeNonce = new Uint8Array(hash).slice(0, 16);  // always 16 byte
+                }
+                // 9. Derive the new current key from the nextAesKey (using secretCode2 + derivationNonce from previous msg)
+                currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
+               // console.log("outcome msg: " + realMessage, cumulativeNonce[1])
+            }
+        } catch (error) {
+            console.error("Encryption failed:", error);
+            alert("Failed to send message");
+        }
+    }
+
+    function generatePadding(length) {
+        let padding = '';
+        const allowedCharacters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789èìòàé';
+        for (let i = 0; i < length; i++) {
+            const randomIndex = Math.floor(Math.random() * allowedCharacters.length);
+            padding += allowedCharacters[randomIndex];
+        }
+        return padding
+    }
+
+
+    async function hostSendsMessage(base64EncryptedMsg, realMessage) {
+        try {
+            const response = await fetch('http://localhost:3001/api/hostSendsMessage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    roomName,
+                    hostToken,
+                    message: base64EncryptedMsg
+                })
+            });
+            if (response.status == "403") {
+                alert("This chat is lost or deleted.")
+                location.reload()
+                return false
+            }
+            if (response.status === 429) {
+                console.warn("Too many pending messages, please wait...");
+                return false;
+            }
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || 'Send failed');
+            }
+            const data = await response.json();
+            sendOk = true
+            if (realMessage.length > 0) { showMsg(realMessage, "me") };
+            return true;
+        } catch (error) {
+            console.error("Error:", error);
+            return false;
+        }
+    }
+
+    async function joinerSendsMessage(base64EncryptedMsg, realMessage) {
+        try {
+            const response = await fetch('http://localhost:3001/api/joinerSendsMessage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    roomName,
+                    joinerToken,
+                    message: base64EncryptedMsg
+                })
+            });
+            if (response.status == "403") {
+                alert("This chat is lost or deleted.")
+                location.reload()
+                return false
+            }
+            if (response.status === 429) {
+                console.warn("Too many pending messages, please wait...");
+                return false;
+            }
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || 'Send failed');
+            }
+            const data = await response.json();
+            sendOk = true
+            if (realMessage.length > 0) { showMsg(realMessage, "me") };
+            return true;
+        } catch (error) {
+            console.error(error);
+            return false;
+        }
+    }
+
+
+
+    async function deriveNextCurrentDefKey(nextAesRaw) {
+        // Build dynamic salt: secretCode2 + cumulative nonce (16 bytes)
+        const secretBytes = new TextEncoder().encode(secretCode2)
+        let salt = new Uint8Array(secretBytes.length + 16);
+        salt.set(secretBytes)
+        salt.set(cumulativeNonce, secretBytes.length)
+        const hash = await argon2.hash({
+            pass: nextAesRaw,
+            salt: salt,
+            time: 3,
+            mem: 32768,
+            hashLen: 32,
+            parallelism: 1,
+            type: argon2.Argon2id
+        })
+        const newKey = await crypto.subtle.importKey(
+            "raw",
+            hash.hash,
+            { name: "AES-GCM" },
+            false,
+            ["encrypt", "decrypt"]
+        )
+        currentDefKey = newKey
+        return currentDefKey
+    }
+
 
     function deadConversation() {
         clearInterval(deadConversationTimer);
@@ -954,11 +1156,13 @@ function app() {
         }, 1000);
     }
 
+
+    let timerFakeMsg;
+
     function msgFlowControl() {
         clearInterval(timerFakeMsg);
-        let t = 30;
+        let t = 15;
         timerFakeMsg = setInterval(() => {
-            // console.log(t)
             if (--t <= 0) {
                 clearInterval(timerFakeMsg);
                 alert("Weird: it's been way too long since you last got any messages from your partner.Better to restart the chat.");
@@ -969,9 +1173,7 @@ function app() {
     }
 
 
-    document.getElementById("sendMsgBtn").addEventListener("click", () => { autoFakeMsg = false; encryptTheMessage() })
-    document.getElementById("destroyChatBtn").addEventListener("click", deleteRoom)
-    document.getElementById("newWindowBtn").addEventListener("click", openNewWindow)
+
 
 
     function openNewWindow() {
@@ -1003,6 +1205,7 @@ function app() {
             for (let i = 0; i < encryptedMessages.length; i++) {
                 await decryptTheMessage(encryptedMessages[i].message)
             }
+            setTimeout(() => constantRateTick(), MESSAGE_RESPONSE_DELAY)
         } catch (error) {
             console.error("Error retrieving message:", error);
             throw error;
@@ -1032,283 +1235,19 @@ function app() {
             for (let i = 0; i < encryptedMessages.length; i++) {
                 await decryptTheMessage(encryptedMessages[i].message)
             }
+            setTimeout(() => constantRateTick(), MESSAGE_RESPONSE_DELAY)
         } catch (error) {
             console.error("Error:", error);
             throw error;
         }
     }
 
-    async function hostSendsMessage(base64EncryptedMsg) {
-        try {
-            const response = await fetch('http://localhost:3001/api/hostSendsMessage', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    roomName,
-                    hostToken,
-                    message: base64EncryptedMsg
-                })
-            });
-            if (response.status == "403") {
-                alert("This chat is lost or deleted.")
-                location.reload()
-                return false
-            }
-            if (response.status === 429 && !autoFakeMsg) {
-                alert("Too many pending messages, please wait...");
-                return false;
-            }
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || 'Send failed');
-            }
-            const data = await response.json();
-            sendOk = true
-            if (!autoFakeMsg) {
-                let message = document.getElementById("messageInput").value;
-                showMsg(message, "me");
-                hasConversationStarted = true;
-                lastRealSender = "me";
-            }
-            if (autoFakeMsg) {
-                console.log("host sent a fake msg")
-                lastFakeSender = "me"
 
-            }
-            document.getElementById("messageInput").value = ""
-            return true;
-
-        } catch (error) {
-            console.error("Error:", error);
-            return false;
-        }
-    }
-
-    async function joinerSendsMessage(base64EncryptedMsg) {
-        try {
-            const response = await fetch('http://localhost:3001/api/joinerSendsMessage', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    roomName,
-                    joinerToken,
-                    message: base64EncryptedMsg
-                })
-            });
-            if (response.status == "403") {
-                alert("This chat is lost or deleted.")
-                location.reload()
-                return false
-            }
-            if (response.status === 429 && !autoFakeMsg) {
-                alert("Too many pending messages, please wait...");
-                return false;
-            }
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || 'Send failed');
-            }
-            const data = await response.json();
-            sendOk = true
-            if (!autoFakeMsg) {
-                let message = document.getElementById("messageInput").value;
-                showMsg(message, "me");
-                document.getElementById("messageInput").value = ""
-                hasConversationStarted = true;
-                lastRealSender = "me";
-            }
-            if (autoFakeMsg) {
-                console.log("joiner sent a fake msg")
-                lastFakeSender = "me"
-            }
-
-            return true;
-        } catch (error) {
-            console.error(error);
-            return false;
-        }
-    }
-
-    async function deriveNextCurrentDefKey(nextAesRaw) {
-        // Build dynamic salt: secretCode2 + cumulative nonce (16 bytes)
-        const secretBytes = new TextEncoder().encode(secretCode2)
-        let salt = new Uint8Array(secretBytes.length + 16);
-        salt.set(secretBytes)
-        salt.set(cumulativeNonce, secretBytes.length)
-        const hash = await argon2.hash({
-            pass: nextAesRaw,
-            salt: salt,
-            time: 3,
-            mem: 32768,
-            hashLen: 32,
-            parallelism: 1,
-            type: argon2.Argon2id
-        })
-        const newKey = await crypto.subtle.importKey(
-            "raw",
-            hash.hash,
-            { name: "AES-GCM" },
-            false,
-            ["encrypt", "decrypt"]
-        )
-        currentDefKey = newKey
-        return currentDefKey
-    }
-
-
-    function generatePadding(length) {
-        let padding = '';
-        const allowedCharacters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789èìòàé';
-        for (let i = 0; i < length; i++) {
-            const randomIndex = Math.floor(Math.random() * allowedCharacters.length);
-            padding += allowedCharacters[randomIndex];
-        }
-        return padding
-    }
-    function generateAndSendFakeMessage() {
-        let delay = "1993"
-        if (customDummyInterval?.customMean > 3000 && customDummyInterval?.customMean < 9000) {
-            const mean = customDummyInterval.customMean;  // The average interval so far (in ms), our target center
-            // --- Box-Muller transform to generate a standard normal random variable Z ~ N(0,1) ---
-            let u = Math.random();
-            let v = Math.random();
-            // Prevent log(0) edge case (extremely rare, but mathematically safer)
-            while (u === 0) u = Math.random();
-            while (v === 0) v = Math.random();
-            // Box-Muller polar form: produces one standard normal variate
-            const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-            // Scale and shift to get desired distribution: ~ N(mean, σ) where σ = 18% of mean
-            delay = mean + z * (mean * 0.18);
-            // Hard constraints – never go below absolute minimum or outside ±50% of mean
-            delay = Math.max(2000, delay);                // Never faster than 2 seconds
-            delay = Math.max(mean * 0.5, delay);          // At least 50% of the observed average
-            delay = Math.min(mean * 1.5, delay);          // At most 150% of the observed average
-            // Round to nearest integer millisecond (more natural for setTimeout / setInterval)
-            delay = Math.round(delay);
-            // Now 'delay' is ready to be used (e.g. setTimeout(sendFakeMessage, delay))
-        }
-        else {
-            delay = Math.random() * 3000 + 3000; // random 3000–6000ms
-        }
-
-
-
-        setTimeout(() => {
-            if (hasConversationStarted && conversationStopped) {
-                if (lastRealSender === "partner" || lastFakeSender === "partner") {
-                    lastRealSender = null
-                    lastFakeSender = "partner"
-                    autoFakeMsg = true;
-                    myFirstMessageHasBeenSent = false
-                    encryptTheMessage();
-                }
-            }
-            conversationStopped = true
-            generateAndSendFakeMessage();
-        }, delay);
-    }
-
-
-
-
-    async function encryptTheMessage() {
-        let message = document.getElementById("messageInput").value;
-        if (message.trim() === "" && !autoFakeMsg) {
-            alert("The message is empty.");
-            return;
-        }
-        if (message.length > 420) {
-            alert("The message is longer than 420 characters. Please make it shorter or split it.")
-            return
-        }
-        if (autoFakeMsg) {
-            message = ""
-        }
-        const charactersNeededForPadding = 423 - 3 - message.length // Base padding needed to reach 423 characters (3 are reserved for the length field)
-        let extraPaddingLength = Math.floor(Math.random() * 80) // Random padding extension (0–79 extra characters)
-        let padding = generatePadding(charactersNeededForPadding + extraPaddingLength)
-        const messageLength3Chars = String(message.length).padStart(3, "0");
-        message = messageLength3Chars + message + padding //004CafènrUe23j0das0id02ej12e9...
-        try {
-            // 1. Generate the next random AES key that will be derived (secretCode2 + cumulativeNonce) and used after this message
-            const nextAesKey = await crypto.subtle.generateKey(
-                { name: "AES-GCM", length: 256 },
-                true,
-                ["encrypt", "decrypt"]
-            );
-            const nextAesRaw = new Uint8Array(await crypto.subtle.exportKey("raw", nextAesKey));
-            // 2. Generate a fresh derivation nonce (16 bytes) that will be cumulated and used (with secretCode2) to derive the key for the NEXT message
-            const derivationNonce = crypto.getRandomValues(new Uint8Array(16));
-            // 3. Build the payload: message || nextAesKey (32) || derivationNonce (16)
-            const encoder = new TextEncoder();
-            const msgData = encoder.encode(message);
-            const payload = new Uint8Array(msgData.byteLength + 32 + 16);
-            payload.set(msgData, 0);
-            payload.set(nextAesRaw, msgData.byteLength);
-            payload.set(derivationNonce, msgData.byteLength + 32);
-            // 4. Standard AES-GCM IV (still sent in clear – required by the algorithm)
-            const iv = crypto.getRandomValues(new Uint8Array(12));
-            // 5. Encrypt everything with the current key
-            const encrypted = await crypto.subtle.encrypt(
-                { name: 'AES-GCM', iv },
-                currentDefKey,
-                payload
-            );
-            // 6. Prepend IV and convert to base64
-            const result = new Uint8Array(iv.byteLength + encrypted.byteLength);
-            result.set(iv, 0);
-            result.set(new Uint8Array(encrypted), iv.byteLength);
-            const base64EncryptedMsg = btoa(String.fromCharCode(...result));
-
-            // 7. Send message
-            if (userName === "host") {
-                await hostSendsMessage(base64EncryptedMsg);
-            } else {
-                await joinerSendsMessage(base64EncryptedMsg);
-            }
-            // 8. Save the derivation nonce for the next key derivation if the server saved the msg
-            if (sendOk) {
-                if (!autoFakeMsg) {
-                    if (!myFirstMessageHasBeenSent) { // the user very first message or the user first message after his dummy trafic
-                        customDummyInterval.startRealConversationTimestamp = Date.now()
-                        customDummyInterval.messageCounter = 0
-                        myFirstMessageHasBeenSent = true
-                        console.log("first message sent")
-                    }
-                    conversationStopped = false
-                    deadConversation()
-                    customDummyInterval.messageCounter++
-                    customDummyInterval.customMean = (Date.now() - customDummyInterval.startRealConversationTimestamp) / customDummyInterval.messageCounter
-                    //console.log(customDummyInterval)
-                }
-
-
-                sendOk = false
-                if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {
-                    // first message
-                    cumulativeNonce = derivationNonce
-                } else {
-                    // others messages
-                    const combined = new Uint8Array(32);
-                    combined.set(cumulativeNonce, 0);
-                    combined.set(derivationNonce, 16);
-                    const hash = await crypto.subtle.digest("SHA-256", combined);
-                    cumulativeNonce = new Uint8Array(hash).slice(0, 16);  // always 16 byte
-                }
-                // 9. Derive the new current key from the nextAesKey (using secretCode2 + derivationNonce from previous msg)
-                currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
-            }
-        } catch (error) {
-            console.error("Encryption failed:", error);
-            alert("Failed to send message");
-        }
-    }
 
     async function decryptTheMessage(base64EncryptedMsg) {
 
         try {
             msgFlowControl() // alert if no message is received for a while
-
             // 1. Decode base64 → IV (12) + ciphertext
             const encryptedWithIv = Uint8Array.from(atob(base64EncryptedMsg), c => c.charCodeAt(0));
             const iv = encryptedWithIv.slice(0, 12);
@@ -1343,11 +1282,6 @@ function app() {
             if (lenStr !== "000") {
                 showMsg(realMessage, "partner");
                 deadConversation()
-                hasConversationStarted = true;
-                lastRealSender = "partner";
-                conversationStopped = false
-            } else if (lenStr == "000") {
-                lastFakeSender = "partner"
             }
             // 6. Save the derivation nonce (was encrypted in the previous message)
             if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {//this is the first message
@@ -1361,6 +1295,7 @@ function app() {
             }
             // 7. Derive the next currentDefKey using the new cumulativeNonce
             currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
+            //console.log("income msg: " + realMessage, cumulativeNonce[1])
         } catch (error) {
             console.error("Decryption failed:", error);
             alert("Message corrupted or out of order");

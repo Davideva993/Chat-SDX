@@ -47,6 +47,11 @@ const Room = sequelize.define('Room', {
   type: DataTypes.INTEGER,
   allowNull: false,
   defaultValue: 0
+},
+acceptMessage: {
+  type: DataTypes.BOOLEAN,
+  allowNull: false,
+  defaultValue: true
 }
 
 });
@@ -73,7 +78,9 @@ const Message = sequelize.define('Message', {
 });
 
 export const initDb = async () => {
-  await sequelize.sync({ alter: false });
+  await sequelize.sync({ alter: true });
   console.log("DB sync completed");
 };
+
+
 export { sequelize, Room, Message };

@@ -36,7 +36,7 @@
  ## Other:
    **Memory**
       -The entire client-side script runs inside an IIFE to keep variables local and isolated. No data is stored persistently (e.g., in localStorage or cookies), so a page refresh clears everything from memory.
-      -The fields `nonce`, `encryptedInitKey`, `encryptedDefKey`, and `encryptedSecret` are automatically deleted 12 seconds after the joiner enters the room and only the last 6 messages (real or fake) are kept on the server.
+      -The fields `nonce`, `encryptedInitKey`, `encryptedDefKey`, and `encryptedSecret` are automatically deleted 12 seconds after the joiner enters the room and only the last 3 messages (real or fake) are kept on the server.
 
    **Encryption**
       -Each chat message, real or dummy, is encrypted with a fresh AES‑GCM key called currentDefKey, derived via Argon2id from a newly generated random AES key (nextAesKey) included in the encrypted message together with the concatenation of SC2 and cumulativeNonce.
@@ -46,16 +46,23 @@
       -The initKey is an RSA public key because even if the tempKey (which encrypts the initKey) is compromised later, the defKey it protects remains safe: the RSA private key never leaves the browser. Another reason is that only someone who immediately holds the tempKey can recover the initKey and use it to encrypt the defKey, and any attempt to tamper with the tempKey triggers the safety timers. No trust in the server is required. 
 
    **Network**
-      -Every message (real or dummy) includes fixed and a random padding so an attacker cannot determine the real length of the content.
-      -When the real chat stops, if the room is not deleted, a "fake chat" starts automatically. It uses empty messages (padded like real ones) that stay hidden from the user interface. The fake chat keeps going for a random time between 3 and 9 hours.  The timing between fake messages tries to copy the behavior that the user showed during the real conversation (using a soft Gaussian curve around the real average). If that can’t be done properly, it just uses a simple random pause of 3 to 6 seconds.  The purpose is to make it harder for an observer to guess when real conversation is happening and increase the difficulty of targeting important messages.
+      -Every message (real or dummy) advances the key chain and includes a fixed and a random padding so an attacker cannot determine the real length of the content. Only real messages are shown in the user interface.
+      -Both users check for new messages every 3 seconds. After the first message (sent by the joiner), all subsequent messages are sent 3 seconds after receiving one. If the user does not write anything, the system sends an empty message instead.
+      These intervals can be changed using the constants MESSAGE_RESPONSE_DELAY and MESSAGE_GET_DELAY.
+      The chat continues for a random duration between 3 and 9 hours if anyone sends a real message but devices stay connected.
+      This makes the conversation rhythm independent from user activity: real and dummy messages have the same timing. It significantly helps prevent observers from identifying when real communication is happening thereby increasing the difficulty of targeting meaningful messages.
+      Usability is clearly sacrificed.
       -Key exchange endpoints are automatically disabled once the chat phase begins.
       -It’s suggested to host it through Tor.
 
    **Room deletion and clear browser memory**
       -Both participants can delete the room at any time using the button or a page refresh.
-      -The room auto-deletes and the browser memory is cleared after 6 hours, if no one sends a real message or if the incoming message flow stops (i.e., the other person's fake/dummy message system unexpectedly stops sending for 30 seconds), or if a possible attempt to compromise is detected (keys, tokens or SC2 mismatch, suspicious delay > 9 sec during the key exchange, 3 wrong token sent to the server, the room was deleted by the other user).
+      -The room auto-deletes and the browser memory is cleared after 6 hours of inactivity if the server is still not compromised   
+      -If an user doesn't receive any message (dummy or real) for 15 seconds, the system clears all local data and asks the server to delete the room because this unexpected condition could be risky.
+      -if a possible attempt to compromise is detected (during the key exchange: keys* or tokens or SC2 mismatch* or suspicious delay > 9 sec*; during the chat: 3 wrong token sent to the server during the chat or the room was deleted by the other user). 
       -After 3 to 9 hours of dummy messages, the browser clears all local data and asks the server to delete the room.
   
+  *these controls strictly depends on the front-end
    
 
    ## Frontend
@@ -67,13 +74,13 @@
 5)The joiner asks for the nonce and encrypted initKey. Then he generates the tempKey (secretCode1, nonce and Argon) and uses it to decrypt the initKey.
 6)The joiner starts a self-destruct timer, encrypts the defKey + random nonce using the decrypted initKey and sends it to the server. The first currentKey is the defKey derived with this nonce and the secretCode2.
 7)The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is used with the secretCode2 to derive the first currentKey, and the clean defKey is imported. The self-destruct timer is cleared.
-8)The host encrypts the hash of secretCode2 using the defKey and sends it to the server.
-9)The joiner asks for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the process is validated and the joiner timer cleared.
+8)The host encrypts the hash of secretCode2 using the defKey and sends it to the server then starts the poling to get new messages.
+9)The joiner asks for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the process is validated and the joiner timer cleared then sends the first message and starts the poling to get new messages.
 ----the chat starts---
--The first message is encrypted (and decrypted) with defKey derived with the nonce (step 6 or 7) and the secretCode2. Then:
-10)The sender encrypts the message (3 digit ASCII length of the real message + the realMessage + padding up to 420 characters + extra random padding of 0–79 characters, e.g., 004CaféawefTRe47...) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce.
-11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (SHA-256(old||new)[0:15]), then derives the next currentDefKey = the received AES derived with secretCode2 + cumulativeNonce.
-12)When the real chat stops, if the room is not deleted, a "fake chat" starts automatically. It uses empty messages (padded like real ones) that stay hidden from the user interface.  The fake chat keeps going for a random time between 3 and 9 hours.  The timing between fake messages tries to copy the behavior that the user showed during the real conversation (using a soft Gaussian curve around the real average). If that can’t be done properly, it just uses a simple random pause of 3 to 6 seconds. 
+-The first message is encrypted (and decrypted) with defKey derived with the nonce (step 6 or 7) and the secretCode2 and sent by the joiner. Then:
+10)The sender encrypts a message (3 digit ASCII length of the real message + the realMessage (can be dummy) + padding up to 420 characters + extra random padding of 0–79 characters, e.g., 004CaféawefTRe47...) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce. 
+11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (SHA-256(old||new)[0:15]), then derives the next currentDefKey = the received AES derived with secretCode2 + cumulativeNonce. Finally, he sends a message (a dummy one if the user doesn't send a real message) after 3 seconds.
+
  
 
 
