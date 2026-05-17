@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Room } from '../models/db.js';
+export const rooms = new Map();
 const keyExchangeCtrl = {
   /*-----NAME-------------------------------------------INPUT------------------------------------OUTPUT--------
   STEP 1: hostRegistersRoom()                         ------                                   roomName, hostToken
@@ -24,14 +24,11 @@ const keyExchangeCtrl = {
         const randomIndex = Math.floor(Math.random() * characters.length);
         roomName += characters[randomIndex];
       }
-      existingRoom = await Room.findOne({ where: { roomName } });
+      existingRoom = rooms.get(roomName);
     } while (existingRoom);
     try {
       const hostToken = uuidv4();
-      await Room.create({
-        roomName,
-        hostToken,
-      });
+      rooms.set(roomName, { roomName, hostToken, joinerToken: null, nonce: null, encryptedInitKey: null, encryptedDefKey: null, encryptedSecret: null, ongoingChat: false, failedAuth: 0, acceptMessage: true, messages: [] });
       return res.status(200).json({ hostToken, roomName });
     } catch (error) {
       return res.status(500).json({ error: 'Server error' });
@@ -46,20 +43,18 @@ const keyExchangeCtrl = {
       return res.status(400).json({ error: 'Missing roomName' });
     }
     try {
-      const room = await Room.findOne({ where: { roomName } });
+      const room = rooms.get(roomName);
       if (!room || room.joinerToken) {
         if (room && room.joinerToken) {
-          await Room.destroy({ where: { roomName } }); //potentially compromise attempt detected on the largest time window: the room is destroyed
+          rooms.delete(roomName); //potentially compromise attempt detected on the largest time window: the room is destroyed
         }
         return res.status(404).json({ error: 'Room not available', restartFront: true });
       }
       const joinerToken = uuidv4();
-      await room.update({ joinerToken });
+      room.joinerToken = joinerToken;
       setTimeout(() => {
-        Room.update(
-          { nonce: null, encryptedInitKey: null, encryptedDefKey: null, encryptedSecret: null },
-          { where: { roomName } }
-        ).catch(() => { })
+        const r = rooms.get(roomName);
+        if (r) { r.nonce = null; r.encryptedInitKey = null; r.encryptedDefKey = null; r.encryptedSecret = null; }
       }, 12_000)
       res.status(200).json({
         joinerToken,
@@ -78,10 +73,10 @@ const keyExchangeCtrl = {
       return res.status(400).json({ error: 'Missing roomName or hostToken' });
     }
     try {
-      const room = await Room.findOne({ where: { roomName } });
+      const room = rooms.get(roomName);
       if (!room || room.hostToken !== hostToken || room.ongoingChat) {
         if (room && room.hostToken !== hostToken) {
-          await room.destroy();
+          rooms.delete(roomName);
         }
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
@@ -103,15 +98,15 @@ const keyExchangeCtrl = {
       return res.status(400).json({ error: 'Missing roomName, hostToken, nonce or encryptedInitKey' });
     }
     try {
-      const room = await Room.findOne({ where: { roomName } });
+      const room = rooms.get(roomName);
       if (!room || room.ongoingChat) {
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
-      if (room && room.hostToken !== hostToken) {
-        await room.destroy();
+      if (room.hostToken !== hostToken) {
+        rooms.delete(roomName);
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
-      await room.update({ encryptedInitKey, nonce });
+      room.encryptedInitKey = encryptedInitKey; room.nonce = nonce;
       res.status(200).json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Server error' });
@@ -127,12 +122,12 @@ const keyExchangeCtrl = {
       return res.status(400).json({ error: 'Missing roomName or joinerToken' });
     }
     try {
-      const room = await Room.findOne({ where: { roomName } });
+      const room = rooms.get(roomName);
       if (!room || room.ongoingChat) {
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
-      if (room && room.joinerToken !== joinerToken) {
-        await room.destroy();
+      if (room.joinerToken !== joinerToken) {
+        rooms.delete(roomName);
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
       if (!room.encryptedInitKey) {
@@ -153,15 +148,15 @@ const keyExchangeCtrl = {
       return res.status(400).json({ error: 'Missing roomName, joinerToken, or encryptedDefKey' });
     }
     try {
-      const room = await Room.findOne({ where: { roomName } });
+      const room = rooms.get(roomName);
       if (!room || room.ongoingChat) {
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
-      if (room && room.joinerToken !== joinerToken) {
-        await room.destroy();
+      if (room.joinerToken !== joinerToken) {
+        rooms.delete(roomName);
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
-      await room.update({ encryptedDefKey });
+      room.encryptedDefKey = encryptedDefKey;
       res.status(200).json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Server error' });
@@ -177,12 +172,12 @@ const keyExchangeCtrl = {
       return res.status(400).json({ error: 'Missing roomName or hostToken' });
     }
     try {
-      const room = await Room.findOne({ where: { roomName } });
+      const room = rooms.get(roomName);
       if (!room || room.ongoingChat) {
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
-      if (room && room.hostToken !== hostToken) {
-        await room.destroy();
+      if (room.hostToken !== hostToken) {
+        rooms.delete(roomName);
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
       if (!room.encryptedDefKey) {
@@ -203,15 +198,15 @@ const keyExchangeCtrl = {
       return res.status(400).json({ error: 'Missing roomName, hostToken, or encryptedSecret' });
     }
     try {
-      const room = await Room.findOne({ where: { roomName } });
+      const room = rooms.get(roomName);
       if (!room || room.ongoingChat) {
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
-      if (room && room.hostToken !== hostToken) {
-        await room.destroy();
+      if (room.hostToken !== hostToken) {
+        rooms.delete(roomName);
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
-      await room.update({ encryptedSecret });
+      room.encryptedSecret = encryptedSecret;
       res.status(200).json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Server error' });
@@ -227,18 +222,18 @@ const keyExchangeCtrl = {
       return res.status(400).json({ error: 'Missing roomName or joinerToken' });
     }
     try {
-      const room = await Room.findOne({ where: { roomName } });
+      const room = rooms.get(roomName);
       if (!room || room.ongoingChat) {
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
-      if (room && room.joinerToken !== joinerToken) {
-        await room.destroy();
+      if (room.joinerToken !== joinerToken) {
+        rooms.delete(roomName);
         return res.status(403).json({ error: 'Invalid request', restartFront: true });
       }
       if (!room.encryptedSecret) {
         return res.status(404).json({ message: 'encryptedSecret not found' });
       }
-      await room.update({ ongoingChat: true });
+      room.ongoingChat = true;
       res.status(200).json({ encryptedSecret: room.encryptedSecret });
     } catch (error) {
       res.status(500).json({ error: 'Server error' });

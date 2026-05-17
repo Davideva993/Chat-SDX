@@ -37,6 +37,7 @@
    **Memory**
       -The entire client-side script runs inside an IIFE to keep variables local and isolated. No data is stored persistently (e.g., in localStorage or cookies), so a page refresh clears everything from memory.
       -The fields `nonce`, `encryptedInitKey`, `encryptedDefKey`, and `encryptedSecret` are automatically deleted 12 seconds after the joiner enters the room and only the last 3 messages (real or fake) are kept on the server.
+      -The backend database is totally ephemeral (in-memory Map).
 
    **Encryption**
       -Each chat message, real or dummy, is encrypted with a fresh AES‑GCM key called currentDefKey, derived via Argon2id from a newly generated random AES key (nextAesKey) included in the encrypted message together with the concatenation of SC2 and cumulativeNonce.
