@@ -12,7 +12,7 @@
 9)The joiner asks for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the process is validated and the joiner timer cleared then sends the first message and starts the poling to get new messages.
 ----the chat starts---
 -The first message is encrypted (and decrypted) with defKey derived with the nonce (step 6 or 7) and the secretCode2 and sent by the joiner. Then:
-10)The sender encrypts a message (3 digit ASCII length of the real message + the realMessage (can be dummy) + padding up to 420 characters + extra random padding of 0–79 characters, e.g., 004CaféawefTRe47...) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce. 
+10)The sender encrypts a message (3 digit ASCII length of the real message + the realMessage (can be dummy) + random byte padding to exactly 1024 bytes) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce. 
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (SHA-256(old||new)[0:15]), then derives the next currentDefKey = the received AES derived with secretCode2 + cumulativeNonce. Finally, he sends a message (a dummy one if the user doesn't send a real message) after 3 seconds.
 */
 function app() {
@@ -964,15 +964,14 @@ function app() {
         if (realMessage === null || realMessage === undefined) {
             return;
         }
-        if (realMessage.length > 420) {
-            console.warn("The message is longer than 420 characters. Please make it shorter or split it.")
+        const messageLength3Chars = String(realMessage.length).padStart(3, "0");
+        const encoder = new TextEncoder();
+        let messageBytes = encoder.encode(messageLength3Chars + realMessage);
+        if (messageBytes.byteLength > 1024) {
+            console.warn("The message is longer than 1024 bytes. Please make it shorter or split it.")
             return
         }
-        const charactersNeededForPadding = 423 - 3 - realMessage.length // Base padding needed to reach 423 characters (3 are reserved for the length field)
-        let extraPaddingLength = Math.floor(Math.random() * 80) // Random padding extension (0–79 extra characters)
-        let padding = generatePadding(charactersNeededForPadding + extraPaddingLength)
-        const messageLength3Chars = String(realMessage.length).padStart(3, "0");
-        let paddedMessage = messageLength3Chars + realMessage + padding //004CafènrUe23j0das0id02ej12e9...
+        let padding = generatePadding(1024 - messageBytes.byteLength)
         try {
             // 1. Generate the next random AES key that will be derived (secretCode2 + cumulativeNonce) and used after this message
             const nextAesKey = await crypto.subtle.generateKey(
@@ -984,13 +983,15 @@ function app() {
             // 2. Generate a fresh derivation nonce (16 bytes) that will be cumulated and used (with secretCode2) to derive the key for the NEXT message
             const derivationNonce = crypto.getRandomValues(new Uint8Array(16));
             // 3. Build the payload: paddedMessage || nextAesKey (32) || derivationNonce (16)
-            const encoder = new TextEncoder();
-            const msgData = encoder.encode(paddedMessage);
+            const msgData = new Uint8Array(1024);
+            msgData.set(messageBytes, 0);
+            msgData.set(padding, messageBytes.byteLength);
             const payload = new Uint8Array(msgData.byteLength + 32 + 16);
             payload.set(msgData, 0);
             payload.set(nextAesRaw, msgData.byteLength);
             payload.set(derivationNonce, msgData.byteLength + 32);
             // 4. Standard AES-GCM IV (still sent in clear – required by the algorithm)
+            console.log(payload)
             const iv = crypto.getRandomValues(new Uint8Array(12));
             // 5. Encrypt everything with the current key
             const encrypted = await crypto.subtle.encrypt(
@@ -1035,13 +1036,7 @@ function app() {
     }
 
     function generatePadding(length) {
-        let padding = '';
-        const allowedCharacters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789èìòàé';
-        for (let i = 0; i < length; i++) {
-            const randomIndex = Math.floor(Math.random() * allowedCharacters.length);
-            padding += allowedCharacters[randomIndex];
-        }
-        return padding
+        return crypto.getRandomValues(new Uint8Array(length));
     }
 
 
