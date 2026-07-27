@@ -20,24 +20,24 @@
 ----the challenge system:
 Host/Joiner can challenge anytime. Remind that challenge will reveal the presence of at least one user. An empty answer could be the pre-arranged answer or reveal that the user did not answer for absence or another reason.
 
-Role hiding for the users : a discreet approach that simulate a symmetry
-When someone clicks “challenge,” the UI stays silent for that person; instead, a special instruction is embedded in the ciphertext of the next outgoing message asking the partner to challenge back. 
-The answers are exchanged after a fixed timer (X) or X+3s (for the responder) to compensate the fact that the responder sees the challenge 3s in advance. X is smaller than Z.
-Goal: a non-technical physical attacker shouldn’t easily tell whether the victim is raising an alarm, and both users should perceive the challenge as received from the partner.
+Role hiding for the users: a discreet approach that simulates a symmetry
+When someone clicks "challenge," the UI stays silent for that person; instead, a special instruction is embedded in the ciphertext of the next outgoing message asking the partner to challenge back.
+The responder sees the challenge approximately 3 seconds before the originator (one round-trip later).
+Goal: a non-technical physical attacker shouldn't easily tell whether the victim is raising an alarm, and both users should perceive the challenge as received from the partner.
 
-Role hiding for the server : 2 typologies of challenges
-Typology C2: the clicking user performs the server exchange after receiving the partner’s challenge-back instruction, then submits both user’s answers after a fixed time (Z).
-Typology C3: the partner performs those steps instead after receiving the challenge instruction (so that, in both typologies, an user performs the server steps only after receiving the challenge message, directly or reflected).
-The whole exchange between users is inside the main encrypted, padded, fixed time message flow. 
-Goal: the server can’t distinguish which message is part of a challenge or who triggered it or the challenge typology.
+Role hiding for the server: 2 typologies of challenges
+Typology C2: the clicking user performs the server exchange after receiving the partner's challenge-back instruction, then submits both users' answers after a fixed time (Z).
+Typology C3: the partner performs those steps instead after receiving the challenge instruction (so that, in both typologies, a user performs the server steps only after receiving the challenge message, directly or reflected).
+The whole exchange between users is inside the main encrypted, padded, fixed time message flow.
+Goal: the server can't distinguish which message is part of a challenge or who triggered it or the challenge typology.
 
-Both users can discreetly signal and verify if any party (partner or the server) may be compromised. When an user launches a challenge, the server can verify too but it can't challenge itself. 
+Both users can discreetly signal and verify if any party (partner or the server) may be compromised. When a user launches a challenge, the server can verify too but it can't challenge itself.
 
-Shared “fruit” or no-answer (empty) setup via a secure external channel (before chat): random fruit choice (may bedifferent/same/"no-answer"/etc.) known only to the three parties so a user can select an incorrect option without the physical attacker immediately inferring an alarm-triggering state.
+Shared "fruit" or no-answer (empty) setup via a secure external channel (before chat): random fruit choice (may be different/same/"no-answer"/etc.) known only to the three parties so a user can select an incorrect option without the physical attacker immediately inferring an alarm-triggering state.
 
-The system does not know which answer is correct; users must keep behavior consistent so they don’t inadvertently reveal that an alarm condition occurred. The sent answer is not shown by UI (other 2 parties answers are)
+The system does not know which answer is correct; users must keep behavior consistent so they don't inadvertently reveal that an alarm condition occurred. The sent answer is not shown by UI (the other 2 parties' answers are).
 
-No correctness-aware termination: if one of the three parts sends an answer different from the pre-arranged one, the others two parts (alerted) should not immediately stop/destroy the room; goal is to keep the alarm harder to detect.
+No correctness-aware termination: if one of the three parts sends an answer different from the pre-arranged one, the other two parts (alerted) should not immediately stop/destroy the room; goal is to keep the alarm harder to detect.
 
     */
 
@@ -77,6 +77,7 @@ function app() {
         activeChallengeMsg2: ":::Please_challenge_2", //if the userB gets this, he challenges userA and himself. UserA will challenge the server
         activeChallengeMsg3: ":::Please_challenge_3", //if the userB gets this, he challenges userA, himself and the server
         answerChallenge: ":::My fruit is: ", // an user communicated his answer to the partner that must inform the server when timeout expires
+        answerServerChallenge: ":::Server_said: ", // the server's answer forwarded to the partner after the server exchange
         activeChallengeMsgReflected: null
     }
     const askForChallengeMsg = "There is a challenge for you! Please click your safe-icon if everything is ok"
@@ -1043,7 +1044,7 @@ function app() {
         if (outgoingQueue.length > 0) { // a real message is available: send it
             //console.log("real message to send available")
             let oldestQueuedMsg = outgoingQueue.shift(); //oldest (real) message queued
-            const keys = ["activeChallengeMsg2", "activeChallengeMsg3", "answerChallenge"];
+            const keys = ["activeChallengeMsg2", "activeChallengeMsg3", "answerChallenge", "answerServerChallenge"];
             if (!keys.some(key => oldestQueuedMsg.startsWith(challengeActivatorsMsg[key])) && activator !== "") { // flags active: if queued msg doesn't start with an activator, encrypt activator + queuedMessage
                 msg = activator + oldestQueuedMsg //if the oldest queued message doesn't start with an activator but msg does, msg = msg + queued: activator first (could be "")
             }
@@ -1434,22 +1435,41 @@ function app() {
 
 
     function challengeTheServer() {
+        const token = userName === "host" ? hostToken : joinerToken;
+        fetch(`${API_URL}/api/startChallenge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ roomName, token })
+        }).then(res => res.json()).then(data => {
+            console.log("Challenge sent to server:", data);
+        }).catch(err => console.error("Challenge start error:", err));
         setChallengeTimer()
-        console.log("send challenge to the server")
     }
     async function serverAnswersExchange() {
-        /*const r = await fetch(`${API_URL}/answer`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ roomName, joinerChallengeAnswer, hostChallengeAnswer }) //  answers to the server
-        });
-        const data = await r.json();
-        if (data == "lemon" || data == "strawberry" || data == "banana") {
-            hostChallengeAnswer = data
+        const token = userName === "host" ? hostToken : joinerToken;
+        try {
+            const r = await fetch(`${API_URL}/api/endChallenge`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ roomName, token, hostAnswer: hostChallengeAnswer, joinerAnswer: joinerChallengeAnswer })
+            });
+            const data = await r.json();
+            const serverAnswerText = data.serverAnswer || "nothing";
+            serverChallengeAnswer = serverAnswerText;
+            if (sendFruitToPartner) {
+                const fruit = userName === "host" ? hostChallengeAnswer : joinerChallengeAnswer;
+                if (fruit) {
+                    outgoingQueue.push(challengeActivatorsMsg["answerChallenge"] + fruit);
+                    sendFruitToPartner = false;
+                }
+            }
+            const msg = challengeActivatorsMsg["answerServerChallenge"] + serverAnswerText;
+            outgoingQueue.push(msg);
+            hostChallengeAnswer = null;
+            joinerChallengeAnswer = null;
+        } catch (err) {
+            console.error("Server answers exchange error:", err);
         }
-        joinerChallengeAnswer = null
-        hostChallengeAnswer = null
-        hostChallengeAnswer = null*/
     }
 
     function setChallengeTimer() {
@@ -1466,6 +1486,7 @@ function app() {
         const challengeType2 = challengeActivatorsMsg["activeChallengeMsg2"]
         const challengeType3 = challengeActivatorsMsg["activeChallengeMsg3"]
         const challengeAnswer = challengeActivatorsMsg["answerChallenge"]
+        const serverAnswer = challengeActivatorsMsg["answerServerChallenge"]
         if (user == "partner") {
             if (message.startsWith(challengeType2) || message.startsWith(challengeType3)) {
                 showTheChallenge(ul)
@@ -1477,9 +1498,13 @@ function app() {
                 else if (message.startsWith(challengeType3)) { message = message.substring(challengeType3.length) }
             }
             if (message.startsWith(challengeAnswer)) {
-                if (userName == "host") { message = "The joiner said: " + message.substring(3); joinerChallengeAnswer = message }
-                if (userName == "joiner") { message = "The host said: " + message.substring(3); hostChallengeAnswer = message }
+                const fruitName = message.substring(challengeAnswer.length);
+                if (userName == "host") { message = "The joiner said: " + fruitName; joinerChallengeAnswer = fruitName }
+                if (userName == "joiner") { message = "The host said: " + fruitName; hostChallengeAnswer = fruitName }
 
+            }
+            if (message.startsWith(serverAnswer)) {
+                message = "The server said: " + message.substring(serverAnswer.length);
             }
             if (message.length > 0) {
                 li.style.color = "red"
@@ -1494,7 +1519,8 @@ function app() {
             else if (message.startsWith(challengeType2)) { message = message.substring(challengeType2.length) }
             else if (message.startsWith(challengeType3)) { message = message.substring(challengeType3.length) }
             else if (message.startsWith(challengeAnswer)) { return }
-            li.style.color = "green"
+            else if (message.startsWith(serverAnswer)) { message = "The server said: " + message.substring(serverAnswer.length) }
+            li.style.color = "red"
             li.style.textShadow = "1px 1px white"
             li.style.fontSize = "larger"
             ul.appendChild(li);

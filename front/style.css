@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap');
+/* No external font imports — all fonts are local */
 
 #nameAndSecretCodeSection {
     display: flex;
@@ -32,7 +32,7 @@ body {
     background: linear-gradient(to bottom, #484866, #111122);
     justify-content: space-between;
     color: grey;
-    font-family: "Roboto Condensed", sans-serif;
+    font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
     font-optical-sizing: auto;
     font-style: normal;
 }

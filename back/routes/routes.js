@@ -2,6 +2,7 @@
 import express from "express";
 import keyExchangeCtrl from "../controllers/keyExchange.js";
 import chatCtrl from "../controllers/chat.js";
+import serverChallengeCtrl from "../controllers/serverChallenge.js";
 
 const router = express.Router();
 
@@ -23,8 +24,11 @@ router.post('/joinerSendsMessage', chatCtrl.joinerSendsMessage);
 router.post('/joinerAsksForMessage', chatCtrl.joinerAsksForMessage);
 router.post('/deleteRoom', chatCtrl.deleteRoom);
 
-
-
-
+// Server Challenge routes
+router.post('/startChallenge', serverChallengeCtrl.startChallenge);
+router.post('/serverCheckChallenge', serverChallengeCtrl.serverCheckChallenge);
+router.post('/serverAnswerChallenge', serverChallengeCtrl.serverAnswerChallenge);
+router.post('/endChallenge', serverChallengeCtrl.endChallenge);
+router.post('/serverReadAnswers', serverChallengeCtrl.serverReadAnswers);
 
 export default router;
