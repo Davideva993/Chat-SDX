@@ -111,7 +111,8 @@
 
 
 ## Run (Frontend)
-index.html
+It's suggested to download the `chat-sdx.html` file, verify it and use it locally. 
+Before use, change `API_URL` in `front/script.js:47` to your backend address (e.g. an `.onion` URL).
 
 
 
@@ -120,8 +121,14 @@ index.html
 cd back
 npm i
 npm start
+```
 
-
+## Tests
+```bash
+cd front && node test.js
+cd back && node test.js
+```
+Requires Node.js 18+ (uses the built‑in `node:test` module). No dependencies needed.
 
 ## License
 Released under the AGPL‑3.0 license — see the LICENSE file for details.

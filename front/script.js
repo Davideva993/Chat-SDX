@@ -10,13 +10,41 @@
 7)The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is used with the secretCode2 to derive the first currentKey, and the clean defKey is imported. The self-destruct timer is cleared.
 8)The host encrypts the hash of secretCode2 using the defKey and sends it to the server then starts the poling to get new messages.
 9)The joiner asks for the encrypted hash of SecretCode2, decrypts it, compares it. If matches, the process is validated and the joiner timer cleared then sends the first message and starts the poling to get new messages.
+
 ----the chat starts---
 -The first message is encrypted (and decrypted) with defKey derived with the nonce (step 6 or 7) and the secretCode2 and sent by the joiner. Then:
 10)The sender encrypts a message (3 digit ASCII length of the real message + the realMessage (can be dummy) + random byte padding to exactly 1024 bytes) + a fresh AES + a nonce (derivationNonce) using currentDefKey and sends it. Then updates cumulativeNonce (first message: defKey as currentKey and the nonce sent with defKey as derivationNonce and secretCode2; later: SHA-256(old||new)[0:15]) and derives the next currentDefKey = AES derived with secretCode2 + cumulativeNonce. 
 11)The receiver decrypts using currentDefKey, gets the AES and derivationNonce, updates cumulativeNonce exactly the same way (SHA-256(old||new)[0:15]), then derives the next currentDefKey = the received AES derived with secretCode2 + cumulativeNonce. Finally, he sends a message (a dummy one if the user doesn't send a real message) after 3 seconds.
-*/
+
+
+----the challenge system:
+Host/Joiner can challenge anytime. Remind that challenge will reveal the presence of at least one user. An empty answer could be the pre-arranged answer or reveal that the user did not answer for absence or another reason.
+
+Role hiding for the users : a discreet approach that simulate a symmetry
+When someone clicks “challenge,” the UI stays silent for that person; instead, a special instruction is embedded in the ciphertext of the next outgoing message asking the partner to challenge back. 
+The answers are exchanged after a fixed timer (X) or X+3s (for the responder) to compensate the fact that the responder sees the challenge 3s in advance. X is smaller than Z.
+Goal: a non-technical physical attacker shouldn’t easily tell whether the victim is raising an alarm, and both users should perceive the challenge as received from the partner.
+
+Role hiding for the server : 2 typologies of challenges
+Typology C2: the clicking user performs the server exchange after receiving the partner’s challenge-back instruction, then submits both user’s answers after a fixed time (Z).
+Typology C3: the partner performs those steps instead after receiving the challenge instruction (so that, in both typologies, an user performs the server steps only after receiving the challenge message, directly or reflected).
+The whole exchange between users is inside the main encrypted, padded, fixed time message flow. 
+Goal: the server can’t distinguish which message is part of a challenge or who triggered it or the challenge typology.
+
+Both users can discreetly signal and verify if any party (partner or the server) may be compromised. When an user launches a challenge, the server can verify too but it can't challenge itself. 
+
+Shared “fruit” or no-answer (empty) setup via a secure external channel (before chat): random fruit choice (may bedifferent/same/"no-answer"/etc.) known only to the three parties so a user can select an incorrect option without the physical attacker immediately inferring an alarm-triggering state.
+
+The system does not know which answer is correct; users must keep behavior consistent so they don’t inadvertently reveal that an alarm condition occurred. The sent answer is not shown by UI (other 2 parties answers are)
+
+No correctness-aware termination: if one of the three parts sends an answer different from the pre-arranged one, the others two parts (alerted) should not immediately stop/destroy the room; goal is to keep the alarm harder to detect.
+
+    */
+
+
 function app() {
     'use strict'
+    const API_URL = 'http://localhost:3001'; // Backend base URL — change for production
     console.log("Argon2:", typeof argon2 !== "undefined" ? "ok" : "error");
     const dynamicElements = document.getElementsByClassName("dynamic")
     let userName
@@ -36,14 +64,33 @@ function app() {
     let initKeyCrypto
     let cumulativeNonce = null
     let sendOk = false
+    let askTheChallenge = false // this user send the challenge to the partner (first-challenge or first challenge-back)
+    let hostChallengeAnswer = null
+    let joinerChallengeAnswer = null
+    let serverChallengeAnswer = null
+    let stopChallengeReqLoop = false // block loop challenge
+    const challengeTimerTime = 12000 // timeout to send the challenge answers to the server
+    let challengeTimerStatus = null
+    let sendFruitToPartner = false
 
+    let challengeActivatorsMsg = {
+        activeChallengeMsg2: ":::Please_challenge_2", //if the userB gets this, he challenges userA and himself. UserA will challenge the server
+        activeChallengeMsg3: ":::Please_challenge_3", //if the userB gets this, he challenges userA, himself and the server
+        answerChallenge: ":::My fruit is: ", // an user communicated his answer to the partner that must inform the server when timeout expires
+        activeChallengeMsgReflected: null
+    }
+    const askForChallengeMsg = "There is a challenge for you! Please click your safe-icon if everything is ok"
     updateDynamicElements("landingPage")
     hostBtnStart.addEventListener("click", () => updateDynamicElements("hostPage"))
     joinBtnStart.addEventListener("click", () => updateDynamicElements("joinPage"))
     backButton.addEventListener("click", () => updateDynamicElements("landingPage"))
     hostBtnEnd.addEventListener("click", hostSetupAndRegisterARoom)
     joinBtnEnd.addEventListener("click", joinerSetupAndFindsRoom)
+    sendChallengeBtn.addEventListener("click", () => { askTheChallenge = true })
     reloadButton.addEventListener("click", () => { location.reload() })
+    strawberry.addEventListener("click", () => { sendChallengeAnswer("strawberry"); })
+    lemon.addEventListener("click", () => { sendChallengeAnswer("lemon"); })
+    banana.addEventListener("click", () => { sendChallengeAnswer("banana"); })
 
 
 
@@ -58,10 +105,7 @@ function app() {
             }
         }
         const label = document.querySelector('label[for="roomNameInput"]')
-        if (classToShow == "chatPage") {
-            document.getElementById("centralSection").style.height = "60vh"
-        }
-        else if (classToShow == "hostPage") {
+        if (classToShow == "hostPage") {
             document.getElementById("roomNameInput").readOnly = true;
             document.getElementById("roomNameInput").style.background = "grey";
             document.getElementById("roomNameInput").style.outline = "none";
@@ -334,7 +378,7 @@ function app() {
             alert("Secret code not valid")
             return
         }
-        fetch('http://localhost:3001/api/hostRegistersRoom', {
+        fetch(`${API_URL}/api/hostRegistersRoom`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
         })
@@ -360,7 +404,7 @@ function app() {
 
     //2)The host asks each 1,5s if the other user (joiner) joined the room.
     function hostAsksForJoiner() {
-        fetch('http://localhost:3001/api/hostAsksForJoiner', {
+        fetch(`${API_URL}/api/hostAsksForJoiner`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -438,7 +482,7 @@ function app() {
     }
 
     function joinerFindsRoom() {
-        fetch('http://localhost:3001/api/joinerFindsRoom', {
+        fetch(`${API_URL}/api/joinerFindsRoom`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -543,7 +587,7 @@ function app() {
     }
     async function hostSendsEncryptedInitKeyAndNonce(encryptedInitKey) {
         timer("host", "start")
-        fetch('http://localhost:3001/api/hostSendsEncryptedInitKeyAndNonce', {
+        fetch(`${API_URL}/api/hostSendsEncryptedInitKeyAndNonce`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -570,7 +614,7 @@ function app() {
     //5)The joiner asks for the nonce and encrypted initKey. Then he generates the tempKey (secretCode1, nonce and Argon) and uses it to decrypt the initKey
     function joinerAsksForEncryptedInitKeyAndNonce() {
         stepsAnimation("initKey", "joiner", "completed")
-        fetch('http://localhost:3001/api/joinerAsksForEncryptedInitKeyAndNonce', {
+        fetch(`${API_URL}/api/joinerAsksForEncryptedInitKeyAndNonce`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -668,7 +712,7 @@ function app() {
             const base64EncryptedDefKey = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
             showBorderEffect("joiner", "defKeyImgContainer");
             // Send to server
-            await fetch('http://localhost:3001/api/joinerSendsEncryptedDefKey', {
+            await fetch(`${API_URL}/api/joinerSendsEncryptedDefKey`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -693,7 +737,7 @@ function app() {
 
     //7) The host polls every 1.5 s for the defKey encrypted by the initKey. When it arrives it is decrypted, the trailing 16-byte nonce is used with the secretCode2 to derivate the first currentKey, and the clean defKey is imported. The self-destruct timer is cleared.
     function hostAsksForEncryptedDefKey() {
-        fetch('http://localhost:3001/api/hostAsksForEncryptedDefKey', {
+        fetch(`${API_URL}/api/hostAsksForEncryptedDefKey`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -709,7 +753,7 @@ function app() {
                 }
 
                 if (response.status === 404) {
-                    console.log(data.error); // "defKey not ready"
+                    //console.log(data.error); // "defKey not ready"
                     setTimeout(() => {
                         hostAsksForEncryptedDefKey()
                     }, 1500)
@@ -810,7 +854,7 @@ function app() {
 
 
     function hostSendsEncryptedSecret(base64EncryptedHash) {
-        fetch('http://localhost:3001/api/hostSendsEncryptedSecret', {
+        fetch(`${API_URL}/api/hostSendsEncryptedSecret`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -837,7 +881,7 @@ function app() {
     async function joinerAsksForEncryptedSecret() {
         try {
             stepsAnimation("validated", "joiner", "completed")
-            const response = await fetch('http://localhost:3001/api/joinerAsksForEncryptedSecret', {
+            const response = await fetch(`${API_URL}/api/joinerAsksForEncryptedSecret`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -930,6 +974,11 @@ function app() {
     let currentDefKey = null
     let deadConversationTimer
     let outgoingQueue = [];
+    let reflectedChallengeReq = false
+    let isChallengeOngoingYet = false
+
+    const forbidChallengeTime = 6500 // avoid crossing challenges before the challenge is shown
+
     const MESSAGE_RESPONSE_DELAY = 3000; // A message is sent 3 seconds after receiving one. The joiner sends the first message (outside the loop).
     const MESSAGE_GET_DELAY = 3000; //Check for new messages every 3 seconds.
 
@@ -944,17 +993,72 @@ function app() {
         document.getElementById("messageInput").value = "";
     });
 
-
-
-    function constantRateTick() {
-        let msg;
-        if (outgoingQueue.length > 0) {
-            msg = outgoingQueue.shift();
-        } else {
-            msg = "";
-        }
-        encryptTheMessage(msg); // it sends the oldest message (real) or, if there is not a real message in the queue, it sends an empty one
+    function pickRandomChallenge() {
+        const array = new Uint8Array(1);
+        window.crypto.getRandomValues(array);
+        return (array[0] % 2 === 0) ? 2 : 3; //return random 2 or 3 to choose a challenge (challenge2 or challenge3)
     }
+
+
+    async function constantRateTick() {
+        //console.log("sending a msg")
+        // only a click on "send message" queues a message. Before encrypt the oldest queued,
+        // check the users flags to know if he's going to challenge (direct or reflected) or to send his challenge answer
+        let activator = "" // stay "" in dummy case only (no activator, no user text)
+        let msg = ""
+        //console.log(askTheChallenge, !stopChallengeReqLoop, !reflectedChallengeReq, !sendFruitToPartner)
+        if (!isChallengeOngoingYet && askTheChallenge && !stopChallengeReqLoop && !reflectedChallengeReq && !sendFruitToPartner) { //this user directly asks for a challenge (clicked) and no challenge is still active
+            let challengeType = await pickRandomChallenge()
+            if (challengeType == 2) { activator = challengeActivatorsMsg["activeChallengeMsg2"] }
+            else if (challengeType == 3) { activator = challengeActivatorsMsg["activeChallengeMsg3"] }
+            stopChallengeReqLoop = true //will not challenge back when the partner challenges back 
+            askTheChallenge = false
+            isChallengeOngoingYet = true
+            setTimeout(() => {
+                isChallengeOngoingYet = false
+            }, forbidChallengeTime);
+        }
+        else if (askTheChallenge && !stopChallengeReqLoop && reflectedChallengeReq) { //this user automatically asks back for a challenge (reflected)
+            activator = challengeActivatorsMsg["activeChallengeMsgReflected"] // the next message will start with this reflected request
+            askTheChallenge = false
+            reflectedChallengeReq = false
+            challengeActivatorsMsg["activeChallengeMsgReflected"] = null
+            isChallengeOngoingYet = true
+            setTimeout(() => {
+                isChallengeOngoingYet = false
+            }, forbidChallengeTime);
+        }
+        else if (sendFruitToPartner) { // this user sends his fruit / challenge answer to the partner
+            if (userName == "host") { activator = challengeActivatorsMsg["answerChallenge"] + hostChallengeAnswer }
+            else if (userName == "joiner") { activator = challengeActivatorsMsg["answerChallenge"] + joinerChallengeAnswer }
+            sendFruitToPartner = false
+        }
+        else {//allowed to challenge again
+            stopChallengeReqLoop = false //ready to send another challenge
+            askTheChallenge = false
+        }
+        if (outgoingQueue.length == 0 && activator !== "") {
+            msg = activator
+        }
+        if (outgoingQueue.length > 0) { // a real message is available: send it
+            //console.log("real message to send available")
+            let oldestQueuedMsg = outgoingQueue.shift(); //oldest (real) message queued
+            const keys = ["activeChallengeMsg2", "activeChallengeMsg3", "answerChallenge"];
+            if (!keys.some(key => oldestQueuedMsg.startsWith(challengeActivatorsMsg[key])) && activator !== "") { // flags active: if queued msg doesn't start with an activator, encrypt activator + queuedMessage
+                msg = activator + oldestQueuedMsg //if the oldest queued message doesn't start with an activator but msg does, msg = msg + queued: activator first (could be "")
+            }
+            else if (keys.some(key => oldestQueuedMsg.startsWith(challengeActivatorsMsg[key]))) {
+                activator = "" //use the oldest activator, the one inside the queuedMsg
+                msg = oldestQueuedMsg
+            }
+            else { msg = oldestQueuedMsg }
+        }
+
+        encryptTheMessage(msg);
+        // it sends the oldest message (real) or, if there is not a real message in the queue, it sends an empty one (dummy). An "empty" message could contain an activator
+
+    }
+
 
 
 
@@ -991,7 +1095,6 @@ function app() {
             payload.set(nextAesRaw, msgData.byteLength);
             payload.set(derivationNonce, msgData.byteLength + 32);
             // 4. Standard AES-GCM IV (still sent in clear – required by the algorithm)
-            console.log(payload)
             const iv = crypto.getRandomValues(new Uint8Array(12));
             // 5. Encrypt everything with the current key
             const encrypted = await crypto.subtle.encrypt(
@@ -1012,7 +1115,7 @@ function app() {
             }
             // 8. Save the derivation nonce for the next key derivation if the server saved the msg
             if (sendOk) {
-                if(realMessage.length>0){deadConversation()}
+                if (realMessage.length > 0) { deadConversation() }
                 sendOk = false
                 if (!cumulativeNonce || cumulativeNonce.byteLength === 0) {
                     // first message
@@ -1027,7 +1130,7 @@ function app() {
                 }
                 // 9. Derive the new current key from the nextAesKey (using secretCode2 + derivationNonce from previous msg)
                 currentDefKey = await deriveNextCurrentDefKey(nextAesRaw);
-               // console.log("outcome msg: " + realMessage, cumulativeNonce[1])
+                // console.log("outcome msg: " + realMessage, cumulativeNonce[1])
             }
         } catch (error) {
             console.error("Encryption failed:", error);
@@ -1042,7 +1145,7 @@ function app() {
 
     async function hostSendsMessage(base64EncryptedMsg, realMessage) {
         try {
-            const response = await fetch('http://localhost:3001/api/hostSendsMessage', {
+            const response = await fetch(`${API_URL}/api/hostSendsMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1076,7 +1179,7 @@ function app() {
 
     async function joinerSendsMessage(base64EncryptedMsg, realMessage) {
         try {
-            const response = await fetch('http://localhost:3001/api/joinerSendsMessage', {
+            const response = await fetch(`${API_URL}/api/joinerSendsMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1179,7 +1282,7 @@ function app() {
 
     async function hostAsksForMessage() {
         try {
-            const response = await fetch('http://localhost:3001/api/hostAsksForMessage', {
+            const response = await fetch(`${API_URL}/api/hostAsksForMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ roomName, hostToken })
@@ -1209,7 +1312,7 @@ function app() {
 
     async function joinerAsksForMessage() {
         try {
-            const response = await fetch('http://localhost:3001/api/joinerAsksForMessage', {
+            const response = await fetch(`${API_URL}/api/joinerAsksForMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ roomName, joinerToken })
@@ -1296,24 +1399,110 @@ function app() {
             alert("Message corrupted or out of order");
         }
     }
+    function sendChallengeAnswer(fruit) {
+        challengeChoiceSection.style.display = "none";
+        isChallengeOngoingYet = false
+        sendFruitToPartner = true
+        if (!challengeTimerStatus) { // the timer is not active => the partner (not this user) is going to sends the answer(s) to the server
+        }
+        if (userName == "host") { hostChallengeAnswer = fruit }
+        else if (userName == "joiner") { joinerChallengeAnswer = fruit }
+    }
 
-    function showMsg(message, user) {
+
+    function showTheChallenge(ul) {
+        const lichallenge = document.createElement('li'); //show the challenge
+        lichallenge.textContent = askForChallengeMsg
+        lichallenge.style.color = "white"
+        lichallenge.style.textShadow = "1px 1px white"
+        lichallenge.style.fontSize = "larger"
+        ul.appendChild(lichallenge);
+        isChallengeOngoingYet = true
+        setTimeout(() => {
+            challengeChoiceSection.style.display = "flex"        
+            //console.log("show challange")
+        }, 200);
+        askTheChallenge = true //challenge back the partner in the next message (unless this user is the origin of the challenge)
+        //console.log("I have to return the challenge.. maybe")
+        if (!stopChallengeReqLoop) { // the user is not the origin
+            //console.log("im not the origin: let's return the challenge")
+            reflectedChallengeReq = true
+            challengeActivatorsMsg["activeChallengeMsgReflected"] = null
+        }
+    }
+
+
+
+    function challengeTheServer() {
+        setChallengeTimer()
+        console.log("send challenge to the server")
+    }
+    async function serverAnswersExchange() {
+        /*const r = await fetch(`${API_URL}/answer`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ roomName, joinerChallengeAnswer, hostChallengeAnswer }) //  answers to the server
+        });
+        const data = await r.json();
+        if (data == "lemon" || data == "strawberry" || data == "banana") {
+            hostChallengeAnswer = data
+        }
+        joinerChallengeAnswer = null
+        hostChallengeAnswer = null
+        hostChallengeAnswer = null*/
+    }
+
+    function setChallengeTimer() {
+        challengeTimerStatus = setTimeout(() => {
+            console.log("timeout for challange to the server")
+            serverAnswersExchange()
+            challengeTimerStatus = null;
+        }, challengeTimerTime);
+    }
+
+    function showMsg(message, user) { // the message can be an activator only or an activator + a real this-user/partner message. ChallengeType is never displayed
         const ul = document.getElementById('ulChat');
         const li = document.createElement('li');
-        li.textContent = message;
+        const challengeType2 = challengeActivatorsMsg["activeChallengeMsg2"]
+        const challengeType3 = challengeActivatorsMsg["activeChallengeMsg3"]
+        const challengeAnswer = challengeActivatorsMsg["answerChallenge"]
         if (user == "partner") {
-            li.style.color = "red"
-            li.style.textShadow = "1px 1px white"
-            li.style.fontSize = "larger"
-            ul.appendChild(li);
+            if (message.startsWith(challengeType2) || message.startsWith(challengeType3)) {
+                showTheChallenge(ul)
+                message.startsWith(challengeType2) ? challengeActivatorsMsg["activeChallengeMsgReflected"] = challengeType2 : challengeActivatorsMsg["activeChallengeMsgReflected"] = challengeType3
+                if ((stopChallengeReqLoop && message.startsWith(challengeType2)) || (!stopChallengeReqLoop && message.startsWith(challengeType3))) { // this user is the one that must challenge the server
+                    challengeTheServer()
+                }
+                if (message.startsWith(challengeType2)) { message = message.substring(challengeType2.length) }
+                else if (message.startsWith(challengeType3)) { message = message.substring(challengeType3.length) }
+            }
+            if (message.startsWith(challengeAnswer)) {
+                if (userName == "host") { message = "The joiner said: " + message.substring(3); joinerChallengeAnswer = message }
+                if (userName == "joiner") { message = "The host said: " + message.substring(3); hostChallengeAnswer = message }
+
+            }
+            if (message.length > 0) {
+                li.style.color = "red"
+                li.style.textShadow = "1px 1px white"
+                li.style.fontSize = "larger"
+                ul.appendChild(li);
+            }
         }
+
         else if (user == "me") {
+            if (message == challengeType2 || message == challengeType3 || message == challengeAnswer) { return } //if this user sent a challenge or an answer by a "not-real-content" message, his UI stays silent
+            else if (message.startsWith(challengeType2)) { message = message.substring(challengeType2.length) }
+            else if (message.startsWith(challengeType3)) { message = message.substring(challengeType3.length) }
+            else if (message.startsWith(challengeAnswer)) { return }
             li.style.color = "green"
             li.style.textShadow = "1px 1px white"
             li.style.fontSize = "larger"
             ul.appendChild(li);
         }
+
+        li.textContent = message; // always a clean message
     }
+
 
     async function deleteRoom() {
         let token
@@ -1323,7 +1512,7 @@ function app() {
             token = joinerToken
         }
         try {
-            const res = await fetch('http://localhost:3001/api/deleteRoom', {
+            const res = await fetch(`${API_URL}/api/deleteRoom`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token, roomName })

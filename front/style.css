@@ -4,6 +4,10 @@
     display: flex;
     flex-direction: column;
 }
+#challengeChoiceSection{
+    display: none;
+    flex-direction: column;
+}
 
 #nameAndSecretCodeSection>span {
     display: flex;
@@ -110,5 +114,12 @@ b {
 
 
 #sendSection {
-    display: flex
+    display: flex;
+    flex-direction: column;
+}
+#sendChatSection{
+    display: flex;
+}
+#ulChat{
+    min-height: min-content
 }
