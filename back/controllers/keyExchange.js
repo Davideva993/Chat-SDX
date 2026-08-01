@@ -28,7 +28,7 @@ const keyExchangeCtrl = {
     } while (existingRoom);
     try {
       const hostToken = uuidv4();
-      rooms.set(roomName, { roomName, hostToken, joinerToken: null, nonce: null, encryptedInitKey: null, encryptedDefKey: null, encryptedSecret: null, ongoingChat: false, failedAuth: 0, acceptMessage: true, messages: [] });
+      rooms.set(roomName, { roomName, hostToken, joinerToken: null, nonce: null, encryptedInitKey: null, encryptedDefKey: null, encryptedSecret: null, ongoingChat: false, failedAuth: 0, messages: [] });
       return res.status(200).json({ hostToken, roomName });
     } catch (error) {
       return res.status(500).json({ error: 'Server error' });

@@ -22,10 +22,9 @@ const chatCtrl = {
       const result = await (async () => {
         const room = rooms.get(roomName);
         if (room && room.hostToken === hostToken) {
-          if (!room.acceptMessage) {
+          if (room.messages.filter(m => m.sender === 'joiner').length) {
             return { status: 429, error: 'There is at least one new message for you: retrieve it first' };
           }
-          room.acceptMessage = false;
         } else {
           const targetRoom = rooms.get(roomName);
           if (targetRoom && targetRoom.hostToken !== hostToken) {
@@ -40,11 +39,9 @@ const chatCtrl = {
         }
         const myPending = room.messages.filter(m => m.sender === 'host').length;
         if (myPending >= 3) {
-          room.acceptMessage = true;
           return { status: 429, error: 'Your partner has 3 pending messages: wait please' };
         }
         room.messages.push({ roomName, sender: 'host', message, order: myPending });
-        room.acceptMessage = true;
         inactivityTimerManager(roomName);
         return { success: true };
       })();
@@ -67,10 +64,9 @@ const chatCtrl = {
            const result = await (async () => {
           const room = rooms.get(roomName);
           if (room && room.joinerToken === joinerToken) {
-            if (!room.acceptMessage) {
+            if (room.messages.filter(m => m.sender === 'host').length) {
               return { status: 429, error: 'There is at least one new message for you: retrieve it first' };
             }
-            room.acceptMessage = false;
           } else {
             const targetRoom = rooms.get(roomName);
             if (targetRoom && targetRoom.joinerToken !== joinerToken) {
@@ -85,11 +81,9 @@ const chatCtrl = {
           }
           const myPending = room.messages.filter(m => m.sender === 'joiner').length;
           if (myPending >= 3) {
-            room.acceptMessage = true;
             return { status: 429, error: 'Your partner has 3 pending messages: wait please' };
           }
           room.messages.push({ roomName, sender: 'joiner', message, order: myPending });
-          room.acceptMessage = true;
           inactivityTimerManager(roomName);
           return { success: true };
         })()

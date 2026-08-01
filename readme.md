@@ -6,6 +6,8 @@
 
    It requires an external channel, not visible to the server at least until the chat starts, to exchange two secret words and the roomName before the session begins.
 
+   The two secret words must be chosen so that they carry no meaning, appear in no dictionary, and combine words, numbers, and letter cases in a non‑standard way. They must never be reused across different sessions.
+
    From the start of the key‑exchange phase until after the chat ends, a set of client‑side mechanisms — designed not to rely on the backend — monitors unexpected conditions that could indicate risk and, if necessary, immediately interrupts the session, clears memory, and attempts to delete the room. The user is also assisted by automatic systems that help protect their privacy during and after the session, both at the network level and through self‑destruction mechanisms.
 
    Encryption uses a strong and distinct key for every message and the compromise of a single message does not allow an attacker to recover previous messages or decrypt future ones.

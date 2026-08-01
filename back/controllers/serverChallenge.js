@@ -1,4 +1,11 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { rooms } from "./keyExchange.js";
+
+const checkPassword = (pwd) => {
+  const a = createHash("sha256").update(pwd ?? "").digest();
+  const b = createHash("sha256").update(process.env.SERVER_PASSWORD ?? "").digest();
+  return timingSafeEqual(a, b);
+};
 
 const serverChallengeCtrl = {
 
@@ -20,7 +27,7 @@ const serverChallengeCtrl = {
   },
 
   serverCheckChallenge: async (req, res) => {
-    if (req.body.password !== process.env.SERVER_PASSWORD) {
+    if (!checkPassword(req.body.password)) {
       return res.status(403).json({ error: "Invalid password" });
     }
     const activeRooms = [];
@@ -36,7 +43,7 @@ const serverChallengeCtrl = {
   },
 
   serverAnswerChallenge: async (req, res) => {
-    if (req.body.password !== process.env.SERVER_PASSWORD) {
+    if (!checkPassword(req.body.password)) {
       return res.status(403).json({ error: "Invalid password" });
     }
     const { roomName, fruit } = req.body;
@@ -74,7 +81,7 @@ const serverChallengeCtrl = {
   },
 
   serverReadAnswers: async (req, res) => {
-    if (req.body.password !== process.env.SERVER_PASSWORD) {
+    if (!checkPassword(req.body.password)) {
       return res.status(403).json({ error: "Invalid password" });
     }
     const { roomName } = req.body;

@@ -28,12 +28,12 @@
             </span>
             <span>
                 <label for="roomSecretCodeInput1">Room SecretCode 1:</label>
-                <input type="text" placeholder="At least 6 alphanumeric characters" id="roomSecretCodeInput1"
+                <input type="text" placeholder="At least 6 chars: words/numbers/cases with NO meaning" id="roomSecretCodeInput1"
                     name="roomSecretCode1">
             </span>
             <span>
                 <label for="roomSecretCodeInput2">Room SecretCode 2:</label>
-                <input type="text" placeholder="At least 12 random chars (A/a + 0-9 + symbols)"
+                <input type="text" placeholder="At least 12 random chars (A/a + 0-9 + symbols), never reused"
                     id="roomSecretCodeInput2" name="roomSecretCode2">
             </span>
             <span>
@@ -57,24 +57,24 @@
                 <h2>Key Principles</h2>
                 <ul>
                     <li>No unnecessary user data (phone, email, account...)</li>
+                    <li>Secretly agree on a fruit, or none, to unlock the challenge: it lets chat participants discreetly signal physical coercion to the server and their partner</li>
                     <li>Sensitive data and keys never leaves the browser in cleartext</li>
-                    <li>Don't send a challenge if you aren't sure that your partner is online</li>
                     <li>Security over comfort: session aborts instantly if compromise is suspected</li>
-                    <li>Server stores only the last 6 encrypted messages (real or fake), temporarily</li>
+                    <li>Server stores only the last 3 encrypted messages (real or fake), temporarily</li>
                     <li>No cookies, no persistent storage, and no global variables — reloading the page wipes
                         everything. The room and all browser-side data auto‑clear after 6 hours of real inactivity.</li>
                     <li>Every message encrypted with a unique key, computed locally, and unknown to the server</li>
                     <li>Knowing one message key is not sufficient to derive previous or next keys</li>
                     <li>Each message, real or dummy, is padded (same size)</li>
                     <li>At fixed interval, a message (real if in queue, dummy if not) is sent</li>
-                    <li>It’s suggested to host it through Tor. The client should be runned as local file (index.html)
+                    <li>It’s suggested to host it through Tor. The client should be run as local file (index.html)
                     </li>
                 </ul>
             </section>
             <section class="dynamic hostPage">
                 <h2>Host a chat: next steps:</h2>
                 <ol>
-                    <li>Choose the secret words</li>
+                    <li>Choose the secret words: never reuse them across sessions, mix cases, numbers and words with no meaning</li>
                     <li>Click "host this chat"</li>
                     <li>Share the roomName and secret words with the other user via a <b>temporary secure channel</b>
                     </li>

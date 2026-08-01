@@ -1488,6 +1488,7 @@ function app() {
         const challengeAnswer = challengeActivatorsMsg["answerChallenge"]
         const serverAnswer = challengeActivatorsMsg["answerServerChallenge"]
         if (user == "partner") {
+            li.style.color = message.startsWith(serverAnswer) ? "yellow" : "red"
             if (message.startsWith(challengeType2) || message.startsWith(challengeType3)) {
                 showTheChallenge(ul)
                 message.startsWith(challengeType2) ? challengeActivatorsMsg["activeChallengeMsgReflected"] = challengeType2 : challengeActivatorsMsg["activeChallengeMsgReflected"] = challengeType3
@@ -1507,7 +1508,6 @@ function app() {
                 message = "The server said: " + message.substring(serverAnswer.length);
             }
             if (message.length > 0) {
-                li.style.color = "red"
                 li.style.textShadow = "1px 1px white"
                 li.style.fontSize = "larger"
                 ul.appendChild(li);
@@ -1516,11 +1516,11 @@ function app() {
 
         else if (user == "me") {
             if (message == challengeType2 || message == challengeType3 || message == challengeAnswer) { return } //if this user sent a challenge or an answer by a "not-real-content" message, his UI stays silent
-            else if (message.startsWith(challengeType2)) { message = message.substring(challengeType2.length) }
+            li.style.color = message.startsWith(serverAnswer) ? "yellow" : "green"
+            if (message.startsWith(challengeType2)) { message = message.substring(challengeType2.length) }
             else if (message.startsWith(challengeType3)) { message = message.substring(challengeType3.length) }
             else if (message.startsWith(challengeAnswer)) { return }
             else if (message.startsWith(serverAnswer)) { message = "The server said: " + message.substring(serverAnswer.length) }
-            li.style.color = "red"
             li.style.textShadow = "1px 1px white"
             li.style.fontSize = "larger"
             ul.appendChild(li);
