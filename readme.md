@@ -98,6 +98,9 @@ No correctness-aware termination: if one of the three parts sends an answer diff
    **Server Challenge Auth**
       The server challenge admin page (`serverChallenge.html`) is protected by a simple shared password. The password is set via the `SERVER_PASSWORD` variable in `back/.env`. Every request from the admin page (check, answer, read) includes this password in the request body; the server compares it against the env value and returns 403 if it doesn't match. This prevents anyone without the password from seeing active challenges or picking answers. The admin page automatically connects to the same host it is served from. The `startChallenge` and `endChallenge` routes (used by chat participants) remain unguarded as they rely on room tokens instead.
 
+## Coercion alert
+Clicking "!" puts an instruction into the next message, dummy or real, that triggers an alert on the receiver's UI; the sender's UI stays silent. A better fit than the challenge for alerting in some cases, since it avoids reflected challenges being shown at inopportune moments (e.g., an attacker who has just arrived) and doesn't warn the server. The receiver gets a highlighted phrase that disappears when clicked. The signal is one-way and never reflected to the sender.
+
    ## Frontend
 <a href="schema.png" target="_blank">
   <img src="schema.png" alt="key exchange schema" width="300">

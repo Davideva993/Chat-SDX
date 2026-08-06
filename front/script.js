@@ -81,6 +81,9 @@ function app() {
         activeChallengeMsgReflected: null
     }
     const askForChallengeMsg = "There is a challenge for you! Please click your safe-icon if everything is ok"
+    const alertActivatorMsg = ":::ALERT_"
+    const alertDisplayText = "Your partner signals compromise!"
+    let alertQueued = false
     updateDynamicElements("landingPage")
     hostBtnStart.addEventListener("click", () => updateDynamicElements("hostPage"))
     joinBtnStart.addEventListener("click", () => updateDynamicElements("joinPage"))
@@ -88,6 +91,7 @@ function app() {
     hostBtnEnd.addEventListener("click", hostSetupAndRegisterARoom)
     joinBtnEnd.addEventListener("click", joinerSetupAndFindsRoom)
     sendChallengeBtn.addEventListener("click", () => { askTheChallenge = true })
+    alertBtn.addEventListener("click", () => { alertQueued = true })
     reloadButton.addEventListener("click", () => { location.reload() })
     strawberry.addEventListener("click", () => { sendChallengeAnswer("strawberry"); })
     lemon.addEventListener("click", () => { sendChallengeAnswer("lemon"); })
@@ -1054,6 +1058,10 @@ function app() {
             }
             else { msg = oldestQueuedMsg }
         }
+        if (alertQueued) {
+            msg = alertActivatorMsg + msg
+            alertQueued = false
+        }
 
         encryptTheMessage(msg);
         // it sends the oldest message (real) or, if there is not a real message in the queue, it sends an empty one (dummy). An "empty" message could contain an activator
@@ -1488,6 +1496,14 @@ function app() {
         const challengeAnswer = challengeActivatorsMsg["answerChallenge"]
         const serverAnswer = challengeActivatorsMsg["answerServerChallenge"]
         if (user == "partner") {
+            if (message.startsWith(alertActivatorMsg)) {
+                message = message.substring(alertActivatorMsg.length)
+                const lialert = document.createElement('li');
+                lialert.className = "alertMsg"
+                lialert.textContent = alertDisplayText
+                lialert.addEventListener("click", () => lialert.remove())
+                ul.appendChild(lialert);
+            }
             li.style.color = message.startsWith(serverAnswer) ? "yellow" : "red"
             if (message.startsWith(challengeType2) || message.startsWith(challengeType3)) {
                 showTheChallenge(ul)
@@ -1515,6 +1531,10 @@ function app() {
         }
 
         else if (user == "me") {
+            if (message.startsWith(alertActivatorMsg)) {
+                message = message.substring(alertActivatorMsg.length)
+                if (message.length === 0) { return }
+            }
             if (message == challengeType2 || message == challengeType3 || message == challengeAnswer) { return } //if this user sent a challenge or an answer by a "not-real-content" message, his UI stays silent
             li.style.color = message.startsWith(serverAnswer) ? "yellow" : "green"
             if (message.startsWith(challengeType2)) { message = message.substring(challengeType2.length) }

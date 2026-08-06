@@ -123,3 +123,11 @@ b {
 #ulChat{
     min-height: min-content
 }
+.alertMsg{
+    background-color: #8a0000;
+    color: #ffffff;
+    font-weight: bold;
+    padding: 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
