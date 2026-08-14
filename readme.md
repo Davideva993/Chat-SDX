@@ -14,6 +14,8 @@
    Chat SDX places privacy and security decisively above convenience, accepting that the chat could be immediately lost if any indication of risk appears. As a result, it is not suitable for everyday use.
     **It is more an experiment than a product: feedback, reflections and critiques are welcome.**
 
+   A lighter variant of this idea, with some relaxed guarantees (WebRTC, file transfer, save/load, WebSocket), is available at [chat-sdx-lite](https://github.com/Davideva993/chat-sdx-lite).
+
 
 
 ## Prerequisites
